@@ -108,6 +108,48 @@ export const ERROR_MESSAGES: Record<string, ErrorDefinition> = {
     docsUrl: `${DOCS_BASE}/unknown-state-ref`,
     fatal: true,
   },
+  [ErrorCode.EACH_OUTSIDE_LIST]: {
+    message: "{#each} blocks are only supported inside <list> elements",
+    hint: "Wrap your {#each} block in a <list> element. {#each} compiles to a Roku MarkupList which requires a list container.",
+    docsUrl: `${DOCS_BASE}/each-outside-list`,
+    fatal: true,
+  },
+  [ErrorCode.EACH_NO_ARRAY_STATE]: {
+    message: '{#each} iterable "{name}" is not a declared array state variable',
+    hint: "The iterable in {#each} must be a let variable initialized with an array literal: let {name} = [...]",
+    docsUrl: `${DOCS_BASE}/each-no-array-state`,
+    fatal: true,
+  },
+  [ErrorCode.EACH_WITH_INDEX]: {
+    message: "{#each} with index variable is not yet supported",
+    hint: "Index variables ({#each items as item, i}) are planned for a future version. For now, use {#each items as item} without an index.",
+    docsUrl: `${DOCS_BASE}/each-with-index`,
+    fatal: true,
+  },
+  [ErrorCode.EACH_WITH_KEY]: {
+    message: "{#each} with key expression is not yet supported",
+    hint: "Key expressions ({#each items as item (item.id)}) are planned for a future version. For now, use {#each items as item} without a key.",
+    docsUrl: `${DOCS_BASE}/each-with-key`,
+    fatal: true,
+  },
+  [ErrorCode.EACH_NESTED]: {
+    message: "Nested {#each} blocks are not supported",
+    hint: "Roku MarkupList items cannot contain nested lists. Flatten your data structure or use separate components.",
+    docsUrl: `${DOCS_BASE}/each-nested`,
+    fatal: true,
+  },
+  [ErrorCode.UNSUPPORTED_ARRAY_INIT]: {
+    message: 'Array state variable "{name}" must be initialized with an array of object literals with literal field values',
+    hint: "Use: let {name} = [{{ title: \"A\", year: \"2024\" }}]. Only string, number, and boolean literal values are supported.",
+    docsUrl: `${DOCS_BASE}/unsupported-array-init`,
+    fatal: true,
+  },
+  [ErrorCode.EACH_OUTER_STATE_REF]: {
+    message: 'Cannot access outer state variable "{name}" inside {#each}',
+    hint: "Roku item components run in a separate SceneGraph context and cannot access parent component state. Only {item.field} bindings are available inside {#each} blocks. This is a Roku platform limitation, not a compiler limitation.",
+    docsUrl: `${DOCS_BASE}/each-outer-state-ref`,
+    fatal: true,
+  },
 };
 
 export const WARNING_MESSAGES: Record<string, WarningDefinition> = {

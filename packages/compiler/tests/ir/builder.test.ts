@@ -507,6 +507,206 @@ describe("buildIR - focus", () => {
   });
 });
 
+// === v0.3 — array state + {#each} ===
+
+describe("buildIR - array state extraction", () => {
+  it("extracts array state with object literal items", () => {
+    const source = `<script>let items = [{ title: "A" }, { title: "B" }];</script><list>{#each items as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    expect(component.state![0]!.type).toBe("array");
+    expect(component.state![0]!.name).toBe("items");
+  });
+
+  it("extracts field names and types from array items", () => {
+    const source = `<script>let items = [{ title: "A", count: 1, active: true }];</script><list>{#each items as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const sv = component.state![0]!;
+    expect(sv.arrayItemFields).toHaveLength(3);
+    expect(sv.arrayItemFields![0]).toEqual({ name: "title", type: "string" });
+    expect(sv.arrayItemFields![1]).toEqual({ name: "count", type: "number" });
+    expect(sv.arrayItemFields![2]).toEqual({ name: "active", type: "boolean" });
+  });
+
+  it("extracts array item values", () => {
+    const source = `<script>let items = [{ title: "A" }, { title: "B" }];</script><list>{#each items as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const sv = component.state![0]!;
+    expect(sv.arrayItems).toHaveLength(2);
+    expect(sv.arrayItems![0]!.fields).toEqual({ title: "A" });
+    expect(sv.arrayItems![1]!.fields).toEqual({ title: "B" });
+  });
+
+  it("errors on non-object-literal array items", () => {
+    const source = `<script>let items = ["a", "b"];</script><text>hello</text>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.code).toBe("UNSUPPORTED_ARRAY_INIT");
+  });
+
+  it("errors on non-literal field values in array items", () => {
+    const source = `<script>let items = [{ title: getTitle() }];</script><text>hello</text>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.code).toBe("UNSUPPORTED_ARRAY_INIT");
+  });
+});
+
+describe("buildIR - {#each} block handling", () => {
+  it("creates IREachBlock linking list to item component", () => {
+    const source = `<script>let items = [{ title: "A" }];</script><list>{#each items as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.eachBlocks).toHaveLength(1);
+    expect(component.eachBlocks![0]!.arrayVar).toBe("items");
+    expect(component.eachBlocks![0]!.itemAlias).toBe("item");
+    expect(component.eachBlocks![0]!.itemComponentName).toBe("Test_Item0");
+    expect(component.eachBlocks![0]!.listNodeId).toMatch(/^markuplist_/);
+  });
+
+  it("creates IRItemComponent with correct children", () => {
+    const source = `<script>let items = [{ title: "A" }];</script><list>{#each items as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.itemComponents).toHaveLength(1);
+    const ic = component.itemComponents![0]!;
+    expect(ic.name).toBe("Test_Item0");
+    expect(ic.children).toHaveLength(1);
+    expect(ic.children[0]!.type).toBe("Label");
+  });
+
+  it("creates IRItemFieldBindings for {item.field} in text", () => {
+    const source = `<script>let items = [{ title: "A" }];</script><list>{#each items as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const ic = component.itemComponents![0]!;
+    expect(ic.fieldBindings).toHaveLength(1);
+    expect(ic.fieldBindings[0]!.property).toBe("text");
+    expect(ic.fieldBindings[0]!.field).toBe("title");
+  });
+
+  it("creates multiple field bindings for multiple labels", () => {
+    const source = `<script>let items = [{ title: "A", year: "2024" }];</script><list>{#each items as item}<text>{item.title}</text><text>{item.year}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const ic = component.itemComponents![0]!;
+    expect(ic.fieldBindings).toHaveLength(2);
+    expect(ic.fieldBindings[0]!.field).toBe("title");
+    expect(ic.fieldBindings[1]!.field).toBe("year");
+    expect(ic.children).toHaveLength(2);
+  });
+
+  it("handles mixed text with item fields (IRItemTextPart)", () => {
+    const source = `<script>let items = [{ title: "A" }];</script><list>{#each items as item}<text>Title: {item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const ic = component.itemComponents![0]!;
+    expect(ic.fieldBindings).toHaveLength(1);
+    const binding = ic.fieldBindings[0]!;
+    expect(binding.textParts).toBeDefined();
+    expect(binding.textParts).toHaveLength(2);
+    expect(binding.textParts![0]).toEqual({ type: "static", value: "Title:" });
+    expect(binding.textParts![1]).toEqual({ type: "field", value: "title" });
+  });
+
+  it("parses itemSize from list attribute", () => {
+    const source = `<script>let items = [{ title: "A" }];</script><list itemSize="[1920, 100]">{#each items as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const ic = component.itemComponents![0]!;
+    expect(ic.itemSize).toEqual([1920, 100]);
+  });
+
+  it("adds itemComponentName property to MarkupList node", () => {
+    const source = `<script>let items = [{ title: "A" }];</script><list>{#each items as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const listNode = component.children[0]!;
+    expect(listNode.type).toBe("MarkupList");
+    expect(listNode.properties.find(p => p.name === "itemComponentName")?.value).toBe("Test_Item0");
+  });
+
+  it("errors on {#each} outside <list>", () => {
+    const source = `<script>let items = [{ title: "A" }];</script><group>{#each items as item}<text>{item.title}</text>{/each}</group>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.code === "EACH_OUTSIDE_LIST")).toBe(true);
+  });
+
+  it("errors on {#each} with index", () => {
+    const source = `<script>let items = [{ title: "A" }];</script><list>{#each items as item, i}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.code === "EACH_WITH_INDEX")).toBe(true);
+  });
+
+  it("errors on {#each} with key expression", () => {
+    const source = `<script>let items = [{ id: "1", title: "A" }];</script><list>{#each items as item (item.id)}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.code === "EACH_WITH_KEY")).toBe(true);
+  });
+
+  it("errors on nested {#each}", () => {
+    const source = `<script>let items = [{ title: "A" }]; let nested = [{ name: "B" }];</script><list>{#each items as item}<list>{#each nested as n}<text>{n.name}</text>{/each}</list>{/each}</list>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.code === "EACH_NESTED")).toBe(true);
+  });
+
+  it("errors on outer state ref inside {#each}", () => {
+    const source = `<script>let count = 0; let items = [{ title: "A" }];</script><list>{#each items as item}<text>{count}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.code === "EACH_OUTER_STATE_REF")).toBe(true);
+  });
+
+  it("errors on unknown array var in {#each}", () => {
+    const source = `<script>let count = 0;</script><list>{#each unknownItems as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.code === "EACH_NO_ARRAY_STATE")).toBe(true);
+  });
+
+  it("errors when {#each} references a non-array state var", () => {
+    const source = `<script>let count = 0;</script><list>{#each count as item}<text>{item.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.code === "EACH_NO_ARRAY_STATE")).toBe(true);
+  });
+});
+
 describe("cssColorToRokuHex", () => {
   it("converts #rrggbb", () => {
     expect(cssColorToRokuHex("#ff0000")).toBe("0xff0000ff");

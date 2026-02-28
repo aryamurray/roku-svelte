@@ -195,7 +195,7 @@ describe("compile - v0.2 valid fixtures", () => {
     expect(result.xml).not.toContain("text="); // text is dynamic
 
     // BrightScript
-    expect(result.brightscript).toContain("v0.2");
+    expect(result.brightscript).toContain("v0.3");
     expect(result.brightscript).toContain("m.state = { count: 0, dirty: {} }");
     expect(result.brightscript).toContain("m_update()");
     expect(result.brightscript).toContain("function m_update()");
@@ -387,9 +387,196 @@ describe("compile - v0.2 edge cases", () => {
     const result = compile("<text>Hello</text>", "Static.svelte");
 
     expect(result.errors).toEqual([]);
-    expect(result.brightscript).toContain("v0.1");
+    expect(result.brightscript).toContain("v0.3");
     expect(result.brightscript).not.toContain("m.state");
     expect(result.brightscript).not.toContain("m_update");
+  });
+});
+
+// === v0.3 integration tests — lists ===
+
+describe("compile - v0.3 valid list fixtures", () => {
+  it("compiles simple-list with single field", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "simple-list.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "simple-list.svelte");
+
+    expect(result.errors).toEqual([]);
+
+    // Main XML
+    expect(result.xml).toContain("MarkupList");
+    expect(result.xml).toContain("itemComponentName");
+    expect(result.xml).toContain("simple-list_Item0");
+
+    // Main BrightScript
+    expect(result.brightscript).toContain("v0.3");
+    expect(result.brightscript).toContain("items:");
+    expect(result.brightscript).toContain("ContentNode");
+    expect(result.brightscript).toContain("m.state.dirty.items");
+
+    // Additional components
+    expect(result.additionalComponents).toHaveLength(1);
+    const ic = result.additionalComponents![0]!;
+    expect(ic.name).toBe("simple-list_Item0");
+    expect(ic.xml).toContain("itemContent");
+    expect(ic.xml).toContain("onItemContentChanged");
+    expect(ic.brightscript).toContain("onItemContentChanged");
+    expect(ic.brightscript).toContain("itemContent.title");
+  });
+
+  it("compiles multi-field-list with title + year", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "multi-field-list.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "multi-field-list.svelte");
+
+    expect(result.errors).toEqual([]);
+
+    // Main component
+    expect(result.xml).toContain("MarkupList");
+    expect(result.xml).toContain('itemSize="[1920, 100]"');
+    expect(result.brightscript).toContain("child.title = item.title");
+    expect(result.brightscript).toContain("child.year = item.year");
+
+    // Item component
+    expect(result.additionalComponents).toHaveLength(1);
+    const ic = result.additionalComponents![0]!;
+    expect(ic.brightscript).toContain("itemContent.title");
+    expect(ic.brightscript).toContain("itemContent.year");
+    expect(ic.xml).toContain('width="1920"');
+    expect(ic.xml).toContain('height="100"');
+  });
+
+  it("compiles list-with-props with itemSize", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "list-with-props.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "list-with-props.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.xml).toContain('itemSize="[1920, 150]"');
+    expect(result.additionalComponents).toHaveLength(1);
+    expect(result.additionalComponents![0]!.xml).toContain('width="1920"');
+    expect(result.additionalComponents![0]!.xml).toContain('height="150"');
+  });
+
+  it("compiles list-mixed-text with string concatenation", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "list-mixed-text.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "list-mixed-text.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.additionalComponents).toHaveLength(1);
+    const ic = result.additionalComponents![0]!;
+    expect(ic.brightscript).toContain('"Title:"');
+    expect(ic.brightscript).toContain("itemContent.title");
+    expect(ic.brightscript).toContain("+");
+  });
+});
+
+describe("compile - v0.3 invalid fixtures", () => {
+  it("rejects each-outside-list with EACH_OUTSIDE_LIST", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "each-outside-list.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "each-outside-list.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "EACH_OUTSIDE_LIST")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+
+  it("rejects each-with-index with EACH_WITH_INDEX", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "each-with-index.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "each-with-index.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "EACH_WITH_INDEX")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+
+  it("rejects each-with-key with EACH_WITH_KEY", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "each-with-key.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "each-with-key.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "EACH_WITH_KEY")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+
+  it("rejects each-bad-array with UNSUPPORTED_STATE_INIT", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "each-bad-array.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "each-bad-array.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "UNSUPPORTED_STATE_INIT")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+
+  it("rejects each-outer-state with EACH_OUTER_STATE_REF", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "each-outer-state.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "each-outer-state.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "EACH_OUTER_STATE_REF")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+});
+
+describe("compile - v0.3 regression", () => {
+  it("v0.1 static fixtures still compile correctly", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "static-text.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "static-text.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.xml).toContain("Label");
+    expect(result.xml).toContain('text="Hello Roku"');
+    expect(result.additionalComponents).toBeUndefined();
+  });
+
+  it("v0.2 counter fixture still compiles correctly", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "counter.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "counter.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("m.state = { count: 0, dirty: {} }");
+    expect(result.brightscript).toContain("function increment()");
+    expect(result.additionalComponents).toBeUndefined();
+  });
+
+  it("non-list component has no additionalComponents", () => {
+    const result = compile(
+      '<script>let count = 0;</script><text>{count}</text>',
+      "NoList.svelte",
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.additionalComponents).toBeUndefined();
   });
 });
 

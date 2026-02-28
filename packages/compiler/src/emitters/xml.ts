@@ -1,5 +1,5 @@
 import MagicString from "magic-string";
-import type { IRComponent, IRNode } from "../ir/types.js";
+import type { IRComponent, IRNode, IRItemComponent } from "../ir/types.js";
 
 export function emitXML(component: IRComponent): string {
   const lines: string[] = [];
@@ -23,6 +23,49 @@ export function emitXML(component: IRComponent): string {
   lines.push("</component>");
 
   // Use MagicString as output buffer — ready for .generateMap() later
+  const ms = new MagicString(lines.join("\n"));
+  return ms.toString();
+}
+
+export function emitItemComponentXML(itemComp: IRItemComponent): string {
+  const lines: string[] = [];
+
+  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+  lines.push(
+    `<component name="${escapeXml(itemComp.name)}" extends="Group">`,
+  );
+
+  // Interface section with itemContent field
+  lines.push("  <interface>");
+  lines.push('    <field id="itemContent" type="node" onChange="onItemContentChanged" />');
+  lines.push("  </interface>");
+
+  lines.push(
+    `  <script type="text/brightscript" uri="${escapeXml(itemComp.scriptUri)}" />`,
+  );
+
+  lines.push("  <children>");
+
+  // Root Group wrapper sized to itemSize
+  const rootAttrs: string[] = ['id="item_root"'];
+  if (itemComp.itemSize) {
+    rootAttrs.push(`width="${itemComp.itemSize[0]}"`);
+    rootAttrs.push(`height="${itemComp.itemSize[1]}"`);
+  }
+
+  if (itemComp.children.length > 0) {
+    lines.push(`    <Group ${rootAttrs.join(" ")}>`);
+    for (const child of itemComp.children) {
+      emitNode(child, lines, 6);
+    }
+    lines.push("    </Group>");
+  } else {
+    lines.push(`    <Group ${rootAttrs.join(" ")} />`);
+  }
+
+  lines.push("  </children>");
+  lines.push("</component>");
+
   const ms = new MagicString(lines.join("\n"));
   return ms.toString();
 }

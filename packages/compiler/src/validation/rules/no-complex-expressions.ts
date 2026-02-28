@@ -17,7 +17,14 @@ export function noComplexExpressions(
     enter(node: any) {
       if (node.type === "ExpressionTag" && node.expression) {
         const expr = node.expression;
-        if (expr.type !== "Identifier") {
+        // Allow: Identifier (existing) and simple MemberExpression like item.title (new for v0.3)
+        const isIdentifier = expr.type === "Identifier";
+        const isSimpleMemberExpr =
+          expr.type === "MemberExpression" &&
+          expr.object?.type === "Identifier" &&
+          expr.property?.type === "Identifier" &&
+          !expr.computed;
+        if (!isIdentifier && !isSimpleMemberExpr) {
           const exprSource = source.slice(expr.start, expr.end);
           errors.push(
             createError(

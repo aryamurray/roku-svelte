@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   emitBrightScript,
   toBrightScriptValue,
+  emitItemComponentBrightScript,
 } from "../../src/emitters/brightscript.js";
-import type { IRComponent } from "../../src/ir/types.js";
+import type { IRComponent, IRItemComponent } from "../../src/ir/types.js";
 
 describe("emitBrightScript - v0.1 fallback", () => {
   it("emits empty init for static-only component", () => {
@@ -24,7 +25,7 @@ describe("emitBrightScript - v0.1 fallback", () => {
     const brs = emitBrightScript(component);
 
     expect(brs).toContain("' HelloWorld.brs");
-    expect(brs).toContain("v0.1");
+    expect(brs).toContain("v0.3");
     expect(brs).toContain("function init()");
     expect(brs).toContain("end function");
     expect(brs).not.toContain("findNode");
@@ -98,7 +99,7 @@ describe("emitBrightScript - v0.2 state", () => {
 
     const brs = emitBrightScript(component);
 
-    expect(brs).toContain("v0.2");
+    expect(brs).toContain("v0.3");
     expect(brs).toContain("m.state = { count: 0, dirty: {} }");
     expect(brs).toContain('m.label_0 = m.top.findNode("label_0")');
     expect(brs).toContain("m_update()");
@@ -691,6 +692,244 @@ describe("emitBrightScript - autofocus", () => {
 
     const brs = emitBrightScript(component);
     expect(brs).toContain("m.label_0.setFocus(true)");
+  });
+});
+
+// === v0.3 — array state + lists ===
+
+describe("emitBrightScript - v0.3 array state", () => {
+  it("emits array literal in state init", () => {
+    const component: IRComponent = {
+      name: "MovieList",
+      extends: "Group",
+      scriptUri: "pkg:/components/MovieList.brs",
+      children: [
+        { id: "markuplist_0", type: "MarkupList", properties: [{ name: "itemComponentName", value: "MovieList_Item0" }], children: [] },
+      ],
+      state: [{
+        name: "items",
+        initialValue: "",
+        type: "array",
+        arrayItemFields: [
+          { name: "title", type: "string" },
+          { name: "year", type: "string" },
+        ],
+        arrayItems: [
+          { fields: { title: "Movie 1", year: "2024" } },
+          { fields: { title: "Movie 2", year: "2023" } },
+        ],
+      }],
+      eachBlocks: [{
+        arrayVar: "items",
+        itemAlias: "item",
+        itemComponentName: "MovieList_Item0",
+        listNodeId: "markuplist_0",
+      }],
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain('items: [{ title: "Movie 1", year: "2024" }, { title: "Movie 2", year: "2023" }]');
+  });
+
+  it("emits ContentNode tree creation in m_update()", () => {
+    const component: IRComponent = {
+      name: "MovieList",
+      extends: "Group",
+      scriptUri: "pkg:/components/MovieList.brs",
+      children: [
+        { id: "markuplist_0", type: "MarkupList", properties: [], children: [] },
+      ],
+      state: [{
+        name: "items",
+        initialValue: "",
+        type: "array",
+        arrayItemFields: [
+          { name: "title", type: "string" },
+          { name: "year", type: "string" },
+        ],
+        arrayItems: [
+          { fields: { title: "Movie 1", year: "2024" } },
+        ],
+      }],
+      eachBlocks: [{
+        arrayVar: "items",
+        itemAlias: "item",
+        itemComponentName: "MovieList_Item0",
+        listNodeId: "markuplist_0",
+      }],
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain("if m.state.dirty.items then");
+    expect(brs).toContain('CreateObject("roSGNode", "ContentNode")');
+    expect(brs).toContain("for each item in m.state.items");
+    expect(brs).toContain('child = content.createChild("ContentNode")');
+    expect(brs).toContain("child.title = item.title");
+    expect(brs).toContain("child.year = item.year");
+    expect(brs).toContain("m.markuplist_0.content = content");
+  });
+
+  it("emits findNode for MarkupList in init()", () => {
+    const component: IRComponent = {
+      name: "MovieList",
+      extends: "Group",
+      scriptUri: "pkg:/components/MovieList.brs",
+      children: [
+        { id: "markuplist_0", type: "MarkupList", properties: [], children: [] },
+      ],
+      state: [{
+        name: "items",
+        initialValue: "",
+        type: "array",
+        arrayItemFields: [{ name: "title", type: "string" }],
+        arrayItems: [{ fields: { title: "A" } }],
+      }],
+      eachBlocks: [{
+        arrayVar: "items",
+        itemAlias: "item",
+        itemComponentName: "MovieList_Item0",
+        listNodeId: "markuplist_0",
+      }],
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain('m.markuplist_0 = m.top.findNode("markuplist_0")');
+    expect(brs).toContain("m_update()");
+  });
+
+  it("emits number and boolean field types in array literal", () => {
+    const component: IRComponent = {
+      name: "Test",
+      extends: "Group",
+      scriptUri: "pkg:/components/Test.brs",
+      children: [
+        { id: "markuplist_0", type: "MarkupList", properties: [], children: [] },
+      ],
+      state: [{
+        name: "items",
+        initialValue: "",
+        type: "array",
+        arrayItemFields: [
+          { name: "title", type: "string" },
+          { name: "count", type: "number" },
+          { name: "active", type: "boolean" },
+        ],
+        arrayItems: [
+          { fields: { title: "A", count: "5", active: "true" } },
+        ],
+      }],
+      eachBlocks: [{
+        arrayVar: "items",
+        itemAlias: "item",
+        itemComponentName: "Test_Item0",
+        listNodeId: "markuplist_0",
+      }],
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain('{ title: "A", count: 5, active: true }');
+  });
+});
+
+describe("emitItemComponentBrightScript", () => {
+  it("emits item component with init + onItemContentChanged", () => {
+    const itemComp: IRItemComponent = {
+      name: "MovieList_Item0",
+      scriptUri: "pkg:/components/MovieList_Item0.brs",
+      children: [
+        { id: "label_0", type: "Label", properties: [], children: [] },
+        { id: "label_1", type: "Label", properties: [], children: [] },
+      ],
+      fieldBindings: [
+        { nodeId: "label_0", property: "text", field: "title" },
+        { nodeId: "label_1", property: "text", field: "year" },
+      ],
+    };
+
+    const brs = emitItemComponentBrightScript(itemComp);
+
+    expect(brs).toContain("' MovieList_Item0.brs");
+    expect(brs).toContain("v0.3");
+    expect(brs).toContain("function init()");
+    expect(brs).toContain('m.label_0 = m.top.findNode("label_0")');
+    expect(brs).toContain('m.label_1 = m.top.findNode("label_1")');
+    expect(brs).toContain("function onItemContentChanged()");
+    expect(brs).toContain("itemContent = m.top.itemContent");
+    expect(brs).toContain("if itemContent <> invalid then");
+    expect(brs).toContain("m.label_0.text = itemContent.title");
+    expect(brs).toContain("m.label_1.text = itemContent.year");
+    expect(brs).toContain("end if");
+  });
+
+  it("emits mixed text concatenation in item component", () => {
+    const itemComp: IRItemComponent = {
+      name: "Test_Item0",
+      scriptUri: "pkg:/components/Test_Item0.brs",
+      children: [
+        { id: "label_0", type: "Label", properties: [], children: [] },
+      ],
+      fieldBindings: [
+        {
+          nodeId: "label_0",
+          property: "text",
+          field: "title",
+          textParts: [
+            { type: "static", value: "Title:" },
+            { type: "field", value: "title" },
+          ],
+        },
+      ],
+    };
+
+    const brs = emitItemComponentBrightScript(itemComp);
+
+    expect(brs).toContain('m.label_0.text = "Title:" + itemContent.title');
+  });
+});
+
+describe("emitBrightScript - v0.3 regression", () => {
+  it("v0.1 static-only component still works (no state)", () => {
+    const component: IRComponent = {
+      name: "Static",
+      extends: "Group",
+      scriptUri: "pkg:/components/Static.brs",
+      children: [
+        { id: "label_0", type: "Label", properties: [{ name: "text", value: "Hello" }], children: [] },
+      ],
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain("v0.3");
+    expect(brs).toContain("function init()");
+    expect(brs).not.toContain("m.state");
+    expect(brs).not.toContain("m_update");
+  });
+
+  it("v0.2 state component still works (no lists)", () => {
+    const component: IRComponent = {
+      name: "Counter",
+      extends: "Group",
+      scriptUri: "pkg:/components/Counter.brs",
+      children: [
+        { id: "label_0", type: "Label", properties: [], children: [] },
+      ],
+      state: [{ name: "count", initialValue: "0", type: "number" }],
+      bindings: [
+        { nodeId: "label_0", property: "text", stateVar: "count", dependencies: ["count"] },
+      ],
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain("v0.3");
+    expect(brs).toContain("m.state = { count: 0, dirty: {} }");
+    expect(brs).toContain("m_update()");
+    expect(brs).not.toContain("ContentNode");
   });
 });
 

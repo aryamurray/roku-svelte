@@ -2,8 +2,8 @@ import { parse } from "svelte/compiler";
 import type { AST } from "svelte/compiler";
 import { validate } from "./validation/validator.js";
 import { buildIR } from "./ir/builder.js";
-import { emitXML } from "./emitters/xml.js";
-import { emitBrightScript } from "./emitters/brightscript.js";
+import { emitXML, emitItemComponentXML } from "./emitters/xml.js";
+import { emitBrightScript, emitItemComponentBrightScript } from "./emitters/brightscript.js";
 import type {
   CompileError,
   CompileWarning,
@@ -18,11 +18,18 @@ export interface CompileOptions {
   isEntry?: boolean;
 }
 
+export interface AdditionalComponent {
+  name: string;
+  xml: string;
+  brightscript: string;
+}
+
 export interface CompileResult {
   xml: string;
   brightscript: string;
   warnings: CompileWarning[];
   errors: CompileError[];
+  additionalComponents?: AdditionalComponent[];
 }
 
 export function compile(
@@ -79,5 +86,18 @@ export function compile(
   const xml = emitXML(irResult.component);
   const brightscript = emitBrightScript(irResult.component);
 
-  return { xml, brightscript, warnings, errors };
+  // Emit additional components (item components for lists)
+  let additionalComponents: AdditionalComponent[] | undefined;
+  if (irResult.component.itemComponents && irResult.component.itemComponents.length > 0) {
+    additionalComponents = [];
+    for (const ic of irResult.component.itemComponents) {
+      additionalComponents.push({
+        name: ic.name,
+        xml: emitItemComponentXML(ic),
+        brightscript: emitItemComponentBrightScript(ic),
+      });
+    }
+  }
+
+  return { xml, brightscript, warnings, errors, additionalComponents };
 }

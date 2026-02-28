@@ -11,6 +11,12 @@ import type {
   IRTextPart,
   IREvent,
   SGNodeType,
+  IREachBlock,
+  IRItemComponent,
+  IRItemFieldBinding,
+  IRItemTextPart,
+  IRArrayItemField,
+  IRArrayItem,
 } from "./types.js";
 import type { CompileError, CompileWarning } from "../errors/types.js";
 import { ErrorCode, WarningCode } from "../errors/types.js";
@@ -47,6 +53,7 @@ const ATTRIBUTE_MAP: Record<string, string> = {
   opacity: "opacity",
   text: "text",
   visible: "visible",
+  itemSize: "itemSize",
 };
 
 let nodeIdCounter = 0;
@@ -65,6 +72,12 @@ export interface BuildResult {
   errors: CompileError[];
 }
 
+interface EachContext {
+  alias: string;
+  arrayVar: string;
+  fieldBindings: IRItemFieldBinding[];
+}
+
 interface BuildContext {
   source: string;
   filename: string;
@@ -77,6 +90,11 @@ interface BuildContext {
   bindings: IRBinding[];
   events: IREvent[];
   autofocusNodeId: string | null;
+  eachBlocks: IREachBlock[];
+  itemComponents: IRItemComponent[];
+  eachContext: EachContext | null;
+  componentName: string;
+  eachCounter: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -109,6 +127,8 @@ export function buildIR(
 ): BuildResult {
   nodeIdCounter = 0;
 
+  const name = basename(filename, ".svelte");
+
   const ctx: BuildContext = {
     source,
     filename,
@@ -121,14 +141,17 @@ export function buildIR(
     bindings: [],
     events: [],
     autofocusNodeId: null,
+    eachBlocks: [],
+    itemComponents: [],
+    eachContext: null,
+    componentName: name,
+    eachCounter: 0,
   };
 
   // Extract state and handlers from <script>
   if (ast.instance) {
     extractState(ast.instance, ctx);
   }
-
-  const name = basename(filename, ".svelte");
 
   const children = buildFragment(ast.fragment, ctx);
 
@@ -167,6 +190,12 @@ export function buildIR(
   if (ctx.autofocusNodeId) {
     component.autofocusNodeId = ctx.autofocusNodeId;
   }
+  if (ctx.eachBlocks.length > 0) {
+    component.eachBlocks = ctx.eachBlocks;
+  }
+  if (ctx.itemComponents.length > 0) {
+    component.itemComponents = ctx.itemComponents;
+  }
 
   return { component, warnings: ctx.warnings, errors: ctx.errors };
 }
@@ -185,7 +214,7 @@ function extractState(instance: any, ctx: BuildContext): void {
         if (!name) continue;
 
         if (!decl.init) {
-          // let x; → default to number 0
+          // let x; -> default to number 0
           ctx.stateVarNames.add(name);
           ctx.stateVars.push({ name, initialValue: "0", type: "number" });
           continue;
@@ -224,6 +253,8 @@ function extractState(instance: any, ctx: BuildContext): void {
             initialValue: String(-decl.init.argument.value),
             type: "number",
           });
+        } else if (decl.init.type === "ArrayExpression") {
+          extractArrayState(name, decl.init, decl.start ?? 0, ctx);
         } else {
           ctx.errors.push(
             createError(
@@ -242,6 +273,86 @@ function extractState(instance: any, ctx: BuildContext): void {
       compileHandlerBody(funcName, node.body, ctx);
     }
   }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractArrayState(name: string, arrayExpr: any, offset: number, ctx: BuildContext): void {
+  const elements = arrayExpr.elements;
+
+  if (!elements || elements.length === 0) {
+    ctx.errors.push(
+      createError(
+        ErrorCode.UNSUPPORTED_ARRAY_INIT,
+        locationFromOffset(ctx.source, offset, ctx.filename),
+        { name },
+      ),
+    );
+    return;
+  }
+
+  // Validate each element is an ObjectExpression with Literal values
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const elem of elements) {
+    if (!elem || elem.type !== "ObjectExpression") {
+      ctx.errors.push(
+        createError(
+          ErrorCode.UNSUPPORTED_ARRAY_INIT,
+          locationFromOffset(ctx.source, offset, ctx.filename),
+          { name },
+        ),
+      );
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const prop of elem.properties) {
+      if (prop.type !== "Property" || prop.value?.type !== "Literal") {
+        ctx.errors.push(
+          createError(
+            ErrorCode.UNSUPPORTED_ARRAY_INIT,
+            locationFromOffset(ctx.source, offset, ctx.filename),
+            { name },
+          ),
+        );
+        return;
+      }
+    }
+  }
+
+  // Extract field schema from first element
+  const firstElem = elements[0];
+  const arrayItemFields: IRArrayItemField[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const prop of firstElem.properties) {
+    const fieldName = prop.key?.name ?? prop.key?.value;
+    const val = prop.value?.value;
+    let fieldType: "string" | "number" | "boolean" = "string";
+    if (typeof val === "number") fieldType = "number";
+    else if (typeof val === "boolean") fieldType = "boolean";
+    arrayItemFields.push({ name: fieldName, type: fieldType });
+  }
+
+  // Build IRArrayItem[] from all elements
+  const arrayItems: IRArrayItem[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const elem of elements) {
+    const fields: Record<string, string> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const prop of elem.properties) {
+      const fieldName = prop.key?.name ?? prop.key?.value;
+      fields[fieldName] = String(prop.value.value);
+    }
+    arrayItems.push({ fields });
+  }
+
+  ctx.stateVarNames.add(name);
+  ctx.stateVars.push({
+    name,
+    initialValue: "",
+    type: "array",
+    arrayItemFields,
+    arrayItems,
+  });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -392,6 +503,17 @@ function buildFragment(
       if (irNode) {
         nodes.push(irNode);
       }
+    } else if (child.type === "EachBlock") {
+      // EachBlock outside of a list context
+      if (!ctx.eachContext) {
+        ctx.errors.push(
+          createError(
+            ErrorCode.EACH_OUTSIDE_LIST,
+            locationFromOffset(ctx.source, (child as unknown as { start: number }).start ?? 0, ctx.filename),
+          ),
+        );
+      }
+      // If inside eachContext (nested), it's handled by buildListElement
     }
   }
 
@@ -414,6 +536,11 @@ function buildElement(
       ),
     );
     return null;
+  }
+
+  // Handle list elements with {#each} blocks
+  if (sgType === "MarkupList") {
+    return buildListElement(element, ctx);
   }
 
   const properties: IRProperty[] = [];
@@ -463,17 +590,18 @@ function buildElement(
           properties.push({ name: sgField, value: convertValue(sgField, value) });
         }
       } else {
-        // Dynamic attribute — check for expression binding
+        // Dynamic attribute -- check for expression binding
         const exprTag = extractExpressionFromAttribute(attr);
         if (exprTag) {
-          if (exprTag.type === "Identifier") {
+          if (ctx.eachContext) {
+            // Inside {#each} context — handle item.field bindings
+            handleEachAttributeBinding(attr, exprTag, properties, ctx);
+          } else if (exprTag.type === "Identifier") {
             const varName = exprTag.name;
             if (ctx.stateVarNames.has(varName)) {
               const sgField = ATTRIBUTE_MAP[attrName];
               if (sgField) {
                 properties.push({ name: sgField, value: "", dynamic: true });
-                // We'll create the binding after we have the node ID
-                // Store temporarily for post-processing
                 (attr as SvelteAttribute & { _binding?: { sgField: string; varName: string } })._binding = {
                   sgField,
                   varName,
@@ -517,24 +645,26 @@ function buildElement(
   const id = explicitId ?? generateId(sgType.toLowerCase());
 
   // Now create bindings and events with the resolved node ID
-  for (const attr of element.attributes) {
-    if (attr.type === "Attribute") {
-      const binding = (attr as SvelteAttribute & { _binding?: { sgField: string; varName: string } })._binding;
-      if (binding) {
-        ctx.bindings.push({
-          nodeId: id,
-          property: binding.sgField,
-          stateVar: binding.varName,
-          dependencies: [binding.varName],
-        });
-      }
-    } else if (attr.type === "OnDirective") {
-      if (attr.expression && attr.expression.type === "Identifier") {
-        ctx.events.push({
-          nodeId: id,
-          eventType: "select",
-          handlerName: attr.expression.name,
-        });
+  if (!ctx.eachContext) {
+    for (const attr of element.attributes) {
+      if (attr.type === "Attribute") {
+        const binding = (attr as SvelteAttribute & { _binding?: { sgField: string; varName: string } })._binding;
+        if (binding) {
+          ctx.bindings.push({
+            nodeId: id,
+            property: binding.sgField,
+            stateVar: binding.varName,
+            dependencies: [binding.varName],
+          });
+        }
+      } else if (attr.type === "OnDirective") {
+        if (attr.expression && attr.expression.type === "Identifier") {
+          ctx.events.push({
+            nodeId: id,
+            eventType: "select",
+            handlerName: attr.expression.name,
+          });
+        }
       }
     }
   }
@@ -550,15 +680,26 @@ function buildElement(
   // Handle text content for Labels
   let textContent: string | undefined;
   if (sgType === "Label") {
-    const textResult = extractTextContentWithBindings(element.fragment, id, ctx);
-    if (textResult.type === "static") {
-      textContent = textResult.value;
-      if (textContent) {
-        properties.push({ name: "text", value: textContent });
+    if (ctx.eachContext) {
+      const textResult = extractEachTextContent(element.fragment, id, ctx);
+      if (textResult.type === "static") {
+        textContent = textResult.value;
+        if (textContent) {
+          properties.push({ name: "text", value: textContent });
+        }
       }
-    } else if (textResult.type === "dynamic") {
-      // Dynamic text — binding is already created
-      textContent = undefined;
+      // For field bindings, they're already added to ctx.eachContext.fieldBindings
+    } else {
+      const textResult = extractTextContentWithBindings(element.fragment, id, ctx);
+      if (textResult.type === "static") {
+        textContent = textResult.value;
+        if (textContent) {
+          properties.push({ name: "text", value: textContent });
+        }
+      } else if (textResult.type === "dynamic") {
+        // Dynamic text — binding is already created
+        textContent = undefined;
+      }
     }
   }
 
@@ -575,6 +716,314 @@ function buildElement(
   }
 
   return node;
+}
+
+function buildListElement(
+  element: SvelteElement,
+  ctx: BuildContext,
+): IRNode | null {
+  const properties: IRProperty[] = [];
+  let explicitId: string | null = null;
+  let itemSizeValue: string | null = null;
+
+  // Process list attributes
+  for (const attr of element.attributes) {
+    if (attr.type === "Attribute") {
+      const attrName = attr.name;
+
+      if (attrName === "id") {
+        explicitId = extractStaticAttributeValue(attr);
+        continue;
+      }
+
+      const value = extractStaticAttributeValue(attr);
+      if (value !== null) {
+        const sgField = ATTRIBUTE_MAP[attrName];
+        if (sgField) {
+          if (sgField === "itemSize") {
+            itemSizeValue = value;
+          }
+          properties.push({ name: sgField, value });
+        }
+      }
+    }
+  }
+
+  const id = explicitId ?? generateId("markuplist");
+
+  // Look for EachBlock in the list's fragment
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let eachBlockNode: any = null;
+  for (const child of element.fragment.nodes) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = child as any;
+    if (c.type === "EachBlock") {
+      eachBlockNode = c;
+      break;
+    }
+  }
+
+  if (eachBlockNode) {
+    // Validate the each block
+    const eachStart = eachBlockNode.start ?? 0;
+
+    // Check for index
+    if (eachBlockNode.index) {
+      ctx.errors.push(
+        createError(
+          ErrorCode.EACH_WITH_INDEX,
+          locationFromOffset(ctx.source, eachStart, ctx.filename),
+        ),
+      );
+      return null;
+    }
+
+    // Check for key expression
+    if (eachBlockNode.key) {
+      ctx.errors.push(
+        createError(
+          ErrorCode.EACH_WITH_KEY,
+          locationFromOffset(ctx.source, eachStart, ctx.filename),
+        ),
+      );
+      return null;
+    }
+
+    // Check for nested {#each}
+    if (ctx.eachContext) {
+      ctx.errors.push(
+        createError(
+          ErrorCode.EACH_NESTED,
+          locationFromOffset(ctx.source, eachStart, ctx.filename),
+        ),
+      );
+      return null;
+    }
+
+    // Validate expression is an Identifier referencing an array state var
+    const eachExpr = eachBlockNode.expression;
+    if (!eachExpr || eachExpr.type !== "Identifier") {
+      ctx.errors.push(
+        createError(
+          ErrorCode.EACH_NO_ARRAY_STATE,
+          locationFromOffset(ctx.source, eachStart, ctx.filename),
+          { name: "unknown" },
+        ),
+      );
+      return null;
+    }
+
+    const arrayVarName = eachExpr.name;
+    const arrayStateVar = ctx.stateVars.find(
+      (sv) => sv.name === arrayVarName && sv.type === "array",
+    );
+    if (!arrayStateVar) {
+      ctx.errors.push(
+        createError(
+          ErrorCode.EACH_NO_ARRAY_STATE,
+          locationFromOffset(ctx.source, eachStart, ctx.filename),
+          { name: arrayVarName },
+        ),
+      );
+      return null;
+    }
+
+    // Extract alias from node.context
+    const contextNode = eachBlockNode.context;
+    const alias = contextNode?.name ?? contextNode?.id?.name ?? "item";
+
+    // Generate item component name
+    const itemComponentName = `${ctx.componentName}_Item${ctx.eachCounter}`;
+    ctx.eachCounter++;
+
+    // Set eachContext and build body elements
+    ctx.eachContext = {
+      alias,
+      arrayVar: arrayVarName,
+      fieldBindings: [],
+    };
+
+    const bodyFragment = eachBlockNode.body as AST.Fragment;
+    const itemChildren = buildFragment(bodyFragment, ctx);
+
+    const fieldBindings = [...ctx.eachContext.fieldBindings];
+    ctx.eachContext = null;
+
+    // Parse itemSize
+    let itemSize: [number, number] | undefined;
+    if (itemSizeValue) {
+      const match = itemSizeValue.match(/\[(\d+),\s*(\d+)\]/);
+      if (match) {
+        itemSize = [parseInt(match[1]!, 10), parseInt(match[2]!, 10)];
+      }
+    }
+
+    // Create IRItemComponent
+    const itemComponent: IRItemComponent = {
+      name: itemComponentName,
+      scriptUri: `pkg:/components/${itemComponentName}.brs`,
+      children: itemChildren,
+      fieldBindings,
+      itemSize,
+    };
+    ctx.itemComponents.push(itemComponent);
+
+    // Create IREachBlock
+    const eachBlock: IREachBlock = {
+      arrayVar: arrayVarName,
+      itemAlias: alias,
+      itemComponentName,
+      listNodeId: id,
+    };
+    ctx.eachBlocks.push(eachBlock);
+
+    // Add itemComponentName property to MarkupList
+    properties.push({ name: "itemComponentName", value: itemComponentName });
+  }
+
+  const node: IRNode = {
+    id,
+    type: "MarkupList",
+    properties,
+    children: [],
+  };
+
+  return node;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function handleEachAttributeBinding(
+  attr: SvelteAttribute,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  exprTag: any,
+  properties: IRProperty[],
+  ctx: BuildContext,
+): void {
+  if (!ctx.eachContext) return;
+
+  if (
+    exprTag.type === "MemberExpression" &&
+    exprTag.object?.type === "Identifier" &&
+    exprTag.object.name === ctx.eachContext.alias &&
+    exprTag.property?.type === "Identifier"
+  ) {
+    const field = exprTag.property.name;
+    const sgField = ATTRIBUTE_MAP[attr.name];
+    if (sgField) {
+      // Will be set dynamically in onItemContentChanged — don't add to XML static props
+      properties.push({ name: sgField, value: "", dynamic: true });
+    }
+    // Note: The actual binding is created by extractEachTextContent or post-ID resolution
+    // For attributes, we create the binding now since we don't need textParts
+    // We'll add it after the node id is resolved in buildElement.
+    // Actually, we need to store it for post-processing
+    (attr as SvelteAttribute & { _eachBinding?: { sgField: string; field: string } })._eachBinding = {
+      sgField: sgField ?? attr.name,
+      field,
+    };
+  } else if (exprTag.type === "Identifier") {
+    // Plain identifier in each context — outer state ref
+    if (ctx.stateVarNames.has(exprTag.name)) {
+      ctx.errors.push(
+        createError(
+          ErrorCode.EACH_OUTER_STATE_REF,
+          locationFromOffset(ctx.source, attr.start, ctx.filename),
+          { name: exprTag.name },
+        ),
+      );
+    }
+  }
+}
+
+interface EachTextResult {
+  type: "static" | "field";
+  value?: string;
+}
+
+function extractEachTextContent(
+  fragment: AST.Fragment,
+  nodeId: string,
+  ctx: BuildContext,
+): EachTextResult {
+  if (!ctx.eachContext) return { type: "static" };
+
+  let hasFieldRefs = false;
+  const parts: IRItemTextPart[] = [];
+
+  for (const node of fragment.nodes) {
+    if (node.type === "Text") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const textNode = node as any;
+      const text = textNode.data as string;
+      if (text.trim()) {
+        parts.push({ type: "static", value: text.trim() });
+      }
+    } else if (node.type === "ExpressionTag") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const exprTag = node as any;
+      const expr = exprTag.expression;
+
+      if (
+        expr?.type === "MemberExpression" &&
+        expr.object?.type === "Identifier" &&
+        expr.object.name === ctx.eachContext.alias &&
+        expr.property?.type === "Identifier"
+      ) {
+        hasFieldRefs = true;
+        parts.push({ type: "field", value: expr.property.name });
+      } else if (expr?.type === "Identifier") {
+        // Plain identifier in each context — outer state ref error
+        if (ctx.stateVarNames.has(expr.name)) {
+          ctx.errors.push(
+            createError(
+              ErrorCode.EACH_OUTER_STATE_REF,
+              locationFromOffset(ctx.source, exprTag.start ?? 0, ctx.filename),
+              { name: expr.name },
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  if (!hasFieldRefs) {
+    // All static text
+    const staticTexts: string[] = [];
+    for (const node of fragment.nodes) {
+      if (node.type === "Text") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const textNode = node as any;
+        const trimmed = (textNode.data as string).trim();
+        if (trimmed) staticTexts.push(trimmed);
+      }
+    }
+    return {
+      type: "static",
+      value: staticTexts.length > 0 ? staticTexts.join(" ") : undefined,
+    };
+  }
+
+  // Create field binding
+  const hasMultipleParts = parts.length > 1;
+  if (hasMultipleParts) {
+    // Mixed text: "Title: {item.title}" => textParts
+    const fieldParts = parts.filter((p) => p.type === "field");
+    ctx.eachContext.fieldBindings.push({
+      nodeId,
+      property: "text",
+      field: fieldParts[0]!.value,
+      textParts: parts,
+    });
+  } else if (parts.length === 1 && parts[0]!.type === "field") {
+    // Simple field binding: {item.title}
+    ctx.eachContext.fieldBindings.push({
+      nodeId,
+      property: "text",
+      field: parts[0]!.value,
+    });
+  }
+
+  return { type: "field" };
 }
 
 interface TextContentResult {

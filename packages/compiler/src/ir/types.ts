@@ -25,10 +25,21 @@ export interface IRNode {
   focusable?: boolean;
 }
 
+export interface IRArrayItemField {
+  name: string;
+  type: "string" | "number" | "boolean";
+}
+
+export interface IRArrayItem {
+  fields: Record<string, string>;
+}
+
 export interface IRStateVariable {
   name: string;
   initialValue: string;
-  type: "number" | "string" | "boolean";
+  type: "number" | "string" | "boolean" | "array";
+  arrayItemFields?: IRArrayItemField[];
+  arrayItems?: IRArrayItem[];
 }
 
 export interface IRTextPart {
@@ -64,6 +75,33 @@ export interface IREvent {
   handlerName: string;
 }
 
+export interface IREachBlock {
+  arrayVar: string;
+  itemAlias: string;
+  itemComponentName: string;
+  listNodeId: string;
+}
+
+export interface IRItemTextPart {
+  type: "static" | "field";
+  value: string;
+}
+
+export interface IRItemFieldBinding {
+  nodeId: string;
+  property: string;
+  field: string;
+  textParts?: IRItemTextPart[];
+}
+
+export interface IRItemComponent {
+  name: string;
+  scriptUri: string;
+  children: IRNode[];
+  fieldBindings: IRItemFieldBinding[];
+  itemSize?: [number, number];
+}
+
 export interface IRComponent {
   name: string;
   extends: string;
@@ -74,4 +112,6 @@ export interface IRComponent {
   bindings?: IRBinding[];
   events?: IREvent[];
   autofocusNodeId?: string;
+  eachBlocks?: IREachBlock[];
+  itemComponents?: IRItemComponent[];
 }
