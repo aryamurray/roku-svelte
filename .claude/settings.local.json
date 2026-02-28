@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:svelte.dev)",
+      "WebFetch(domain:www.jsdocs.io)",
+      "WebFetch(domain:developer.roku.com)",
+      "WebFetch(domain:devtools.web.roku.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
