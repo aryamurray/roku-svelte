@@ -3,8 +3,43 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
-  "main": "./src/index.js",
-  "types": "./src/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./env": {
+      "types": "./dist/stubs/env.d.ts",
+      "import": "./dist/stubs/env.js"
+    },
+    "./navigation": {
+      "types": "./dist/stubs/navigation.d.ts",
+      "import": "./dist/stubs/navigation.js"
+    },
+    "./stores": {
+      "types": "./dist/stubs/stores.d.ts",
+      "import": "./dist/stubs/stores.js"
+    },
+    "./router": {
+      "types": "./dist/stubs/router.d.ts",
+      "import": "./dist/stubs/router.js"
+    },
+    "./storage": {
+      "types": "./dist/stubs/storage.d.ts",
+      "import": "./dist/stubs/storage.js"
+    },
+    "./animate": {
+      "types": "./dist/stubs/animate.d.ts",
+      "import": "./dist/stubs/animate.js"
+    },
+    "./network": {
+      "types": "./dist/stubs/network.d.ts",
+      "import": "./dist/stubs/network.js"
+    }
+  },
   "scripts": {
     "build": "tsc --build",
     "check-types": "tsc --noEmit"

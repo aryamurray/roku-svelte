@@ -1,0 +1,38 @@
+{
+  "name": "@svelte-roku/vite-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@svelte-roku/compiler": "*",
+    "@svelte-roku/config": "*",
+    "@svelte-roku/runtime": "*",
+    "c12": "^2.0.4",
+    "defu": "^6.1.4",
+    "pathe": "^2.0.3"
+  },
+  "peerDependencies": {
+    "vite": "^5 || ^6"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/node": "^22.15.3",
+    "roku-deploy": "^3.12.1",
+    "typescript": "5.9.2",
+    "vite": "^6.0.0",
+    "vitest": "^3.1.0"
+  }
+}

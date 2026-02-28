@@ -1,0 +1,21 @@
+{
+  "name": "content-channel",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "svelte-roku dev",
+    "build": "svelte-roku build",
+    "check": "svelte-roku check"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@svelte-roku/cli": "*",
+    "@svelte-roku/compiler": "*",
+    "@svelte-roku/config": "*",
+    "@svelte-roku/preprocessor": "*",
+    "@svelte-roku/vite-plugin": "*",
+    "@svelte-roku/runtime": "*",
+    "svelte": "^5.0.0",
+    "vite": "^6.0.0"
+  }
+}
