@@ -82,6 +82,74 @@ describe("transformMarkup", () => {
     const result = transformMarkup(input, "web");
     expect(result).toBe(`<div>before</div><div>after</div>`);
   });
+
+  // New tests
+
+  it("does not mangle <style> containing <web> text", () => {
+    const input = `<style>.web { color: red; }</style><web><p>web</p></web>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(`<style>.web { color: red; }</style>`);
+  });
+
+  it("preserves HTML comments containing platform tags", () => {
+    const input = `<!-- <web>x</web> --><div>keep</div>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(`<!-- <web>x</web> --><div>keep</div>`);
+  });
+
+  it("deeply nested tags are fully stripped", () => {
+    const input = `<web><web><web>deep</web></web></web>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(``);
+  });
+
+  it("empty platform tags produce empty string", () => {
+    const input = `<web></web>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(``);
+  });
+
+  it("handles self-closing <screen />", () => {
+    const input = `<screen />`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(`<group data-roku-extends="Scene"></group>`);
+  });
+
+  it("handles adjacent same-platform blocks", () => {
+    const input = `<roku>a</roku><roku>b</roku>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(`ab`);
+  });
+
+  it("handles platform tags inside <screen>", () => {
+    const input = `<screen><roku>hi</roku></screen>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(`<group data-roku-extends="Scene">hi</group>`);
+  });
+
+  it("preserves multi-line content", () => {
+    const input = `<roku>line1\nline2\nline3</roku>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(`line1\nline2\nline3`);
+  });
+
+  it("handles <screen> with multiple attributes", () => {
+    const input = `<screen id="main" class="root" data-x="1"><p>hi</p></screen>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(`<group data-roku-extends="Scene" id="main" class="root" data-x="1"><p>hi</p></group>`);
+  });
+
+  it("handles entire file as one platform block", () => {
+    const input = `<roku><div>everything</div></roku>`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(`<div>everything</div>`);
+  });
+
+  it("handles self-closing with attributes", () => {
+    const input = `<web class="x" />`;
+    const result = transformMarkup(input, "roku");
+    expect(result).toBe(``);
+  });
 });
 
 describe("svelteRokuPreprocess", () => {

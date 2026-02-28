@@ -35,6 +35,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Personal local sandbox
+.local/
+
 # Misc
 .DS_Store
 *.pem

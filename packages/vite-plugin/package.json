@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
+    "@svelte-roku/preprocessor": "*",
     "@types/node": "^22.15.3",
     "roku-deploy": "^3.12.1",
     "typescript": "5.9.2",

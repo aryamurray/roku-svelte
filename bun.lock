@@ -48,6 +48,7 @@
         "roku-deploy": "^3.12.1",
         "typescript": "5.9.2",
         "vite": "^6.0.0",
+        "vitest": "^3.1.0",
       },
     },
     "packages/compiler": {
@@ -104,6 +105,7 @@
       "devDependencies": {
         "@repo/typescript-config": "*",
         "typescript": "5.9.2",
+        "vitest": "^3.1.0",
       },
     },
     "packages/typescript-config": {
@@ -123,6 +125,7 @@
       },
       "devDependencies": {
         "@repo/typescript-config": "*",
+        "@svelte-roku/preprocessor": "*",
         "@types/node": "^22.15.3",
         "roku-deploy": "^3.12.1",
         "typescript": "5.9.2",

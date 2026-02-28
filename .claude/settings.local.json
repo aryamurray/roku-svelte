@@ -13,7 +13,10 @@
       "Bash(npx turbo run test)",
       "Bash(bun run:*)",
       "Bash(npm test:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(bun install:*)",
+      "Bash(bunx turbo run:*)",
+      "Bash(npx turbo run test:*)"
     ]
   }
 }

@@ -3,7 +3,7 @@ import { consola } from "consola";
 import { existsSync, writeFileSync, mkdirSync } from "fs";
 import { join, resolve } from "pathe";
 
-const SCAFFOLD_FILES: Record<string, string> = {
+export const SCAFFOLD_FILES: Record<string, string> = {
   "svelte-roku.config.ts": `import { defineConfig } from '@svelte-roku/config'
 
 export default defineConfig({
