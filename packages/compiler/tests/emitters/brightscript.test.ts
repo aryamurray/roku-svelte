@@ -25,7 +25,7 @@ describe("emitBrightScript - v0.1 fallback", () => {
     const brs = emitBrightScript(component);
 
     expect(brs).toContain("' HelloWorld.brs");
-    expect(brs).toContain("v0.3");
+    expect(brs).toContain("v0.4");
     expect(brs).toContain("function init()");
     expect(brs).toContain("end function");
     expect(brs).not.toContain("findNode");
@@ -73,7 +73,7 @@ describe("emitBrightScript - v0.1 fallback", () => {
 });
 
 describe("emitBrightScript - v0.2 state", () => {
-  it("emits state initialization in init()", () => {
+  it("emits state initialization in init() with dirty flags", () => {
     const component: IRComponent = {
       name: "Counter",
       extends: "Group",
@@ -99,8 +99,8 @@ describe("emitBrightScript - v0.2 state", () => {
 
     const brs = emitBrightScript(component);
 
-    expect(brs).toContain("v0.3");
-    expect(brs).toContain("m.state = { count: 0, dirty: {} }");
+    expect(brs).toContain("v0.4");
+    expect(brs).toContain("m.state = { count: 0, dirty: { count: true } }");
     expect(brs).toContain('m.label_0 = m.top.findNode("label_0")');
     expect(brs).toContain("m_update()");
   });
@@ -125,7 +125,7 @@ describe("emitBrightScript - v0.2 state", () => {
     };
 
     const brs = emitBrightScript(component);
-    expect(brs).toContain('m.state = { name: "world", dirty: {} }');
+    expect(brs).toContain('m.state = { name: "world", dirty: { name: true } }');
   });
 
   it("emits boolean state", () => {
@@ -148,10 +148,10 @@ describe("emitBrightScript - v0.2 state", () => {
     };
 
     const brs = emitBrightScript(component);
-    expect(brs).toContain("m.state = { active: true, dirty: {} }");
+    expect(brs).toContain("m.state = { active: true, dirty: { active: true } }");
   });
 
-  it("emits multiple state variables", () => {
+  it("emits multiple state variables with dirty flags", () => {
     const component: IRComponent = {
       name: "Multi",
       extends: "Group",
@@ -176,7 +176,7 @@ describe("emitBrightScript - v0.2 state", () => {
 
     const brs = emitBrightScript(component);
     expect(brs).toContain(
-      'm.state = { count: 0, label: "hello", visible: true, dirty: {} }',
+      'm.state = { count: 0, label: "hello", visible: true, dirty: { count: true, label: true, visible: true } }',
     );
   });
 });
@@ -732,7 +732,7 @@ describe("emitBrightScript - v0.3 array state", () => {
     expect(brs).toContain('items: [{ title: "Movie 1", year: "2024" }, { title: "Movie 2", year: "2023" }]');
   });
 
-  it("emits ContentNode tree creation in m_update()", () => {
+  it("emits ContentNode tree creation with addField() in m_update()", () => {
     const component: IRComponent = {
       name: "MovieList",
       extends: "Group",
@@ -766,6 +766,8 @@ describe("emitBrightScript - v0.3 array state", () => {
     expect(brs).toContain('CreateObject("roSGNode", "ContentNode")');
     expect(brs).toContain("for each item in m.state.items");
     expect(brs).toContain('child = content.createChild("ContentNode")');
+    expect(brs).toContain('child.addField("title", "string", false)');
+    expect(brs).toContain('child.addField("year", "string", false)');
     expect(brs).toContain("child.title = item.title");
     expect(brs).toContain("child.year = item.year");
     expect(brs).toContain("m.markuplist_0.content = content");
@@ -853,7 +855,7 @@ describe("emitItemComponentBrightScript", () => {
     const brs = emitItemComponentBrightScript(itemComp);
 
     expect(brs).toContain("' MovieList_Item0.brs");
-    expect(brs).toContain("v0.3");
+    expect(brs).toContain("v0.4");
     expect(brs).toContain("function init()");
     expect(brs).toContain('m.label_0 = m.top.findNode("label_0")');
     expect(brs).toContain('m.label_1 = m.top.findNode("label_1")');
@@ -891,7 +893,135 @@ describe("emitItemComponentBrightScript", () => {
   });
 });
 
-describe("emitBrightScript - v0.3 regression", () => {
+// === v0.4 — fetch + FetchTask ===
+
+describe("emitBrightScript - v0.4 fetch", () => {
+  it("emits fetch() call + observer in init()", () => {
+    const component: IRComponent = {
+      name: "MovieList",
+      extends: "Group",
+      scriptUri: "pkg:/components/MovieList.brs",
+      children: [
+        { id: "markuplist_0", type: "MarkupList", properties: [], children: [] },
+      ],
+      state: [{
+        name: "movies",
+        initialValue: "",
+        type: "array",
+        arrayItemFields: [{ name: "title", type: "string" }],
+        fetchCall: { url: "/api/movies", urlIsLiteral: true, hasOptions: false },
+      }],
+      eachBlocks: [{
+        arrayVar: "movies",
+        itemAlias: "movie",
+        itemComponentName: "MovieList_Item0",
+        listNodeId: "markuplist_0",
+      }],
+      requiresRuntime: true,
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain('fetch("/api/movies", {})');
+    expect(brs).toContain('m.fetchTask_movies.observeField("response", "on_movies_loaded")');
+  });
+
+  it("emits on_{var}_loaded() callback with ParseJSON + null check", () => {
+    const component: IRComponent = {
+      name: "MovieList",
+      extends: "Group",
+      scriptUri: "pkg:/components/MovieList.brs",
+      children: [
+        { id: "markuplist_0", type: "MarkupList", properties: [], children: [] },
+      ],
+      state: [{
+        name: "movies",
+        initialValue: "",
+        type: "array",
+        arrayItemFields: [{ name: "title", type: "string" }],
+        fetchCall: { url: "/api/movies", urlIsLiteral: true, hasOptions: false },
+      }],
+      eachBlocks: [{
+        arrayVar: "movies",
+        itemAlias: "movie",
+        itemComponentName: "MovieList_Item0",
+        listNodeId: "markuplist_0",
+      }],
+      requiresRuntime: true,
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain("function on_movies_loaded()");
+    expect(brs).toContain("data = ParseJSON(m.fetchTask_movies.response)");
+    expect(brs).toContain("if data <> invalid then");
+    expect(brs).toContain("m.state.movies = data");
+    expect(brs).toContain("m.state.dirty.movies = true");
+    expect(brs).toContain("m_update()");
+  });
+
+  it("emits [] initializer for fetch-sourced state", () => {
+    const component: IRComponent = {
+      name: "MovieList",
+      extends: "Group",
+      scriptUri: "pkg:/components/MovieList.brs",
+      children: [
+        { id: "markuplist_0", type: "MarkupList", properties: [], children: [] },
+      ],
+      state: [{
+        name: "movies",
+        initialValue: "",
+        type: "array",
+        arrayItemFields: [{ name: "title", type: "string" }],
+        fetchCall: { url: "/api/movies", urlIsLiteral: true, hasOptions: false },
+      }],
+      eachBlocks: [{
+        arrayVar: "movies",
+        itemAlias: "movie",
+        itemComponentName: "MovieList_Item0",
+        listNodeId: "markuplist_0",
+      }],
+      requiresRuntime: true,
+    };
+
+    const brs = emitBrightScript(component);
+
+    expect(brs).toContain("movies: []");
+  });
+
+  it("emits dirty flags with all vars true", () => {
+    const component: IRComponent = {
+      name: "Test",
+      extends: "Group",
+      scriptUri: "pkg:/components/Test.brs",
+      children: [
+        { id: "label_0", type: "Label", properties: [], children: [] },
+      ],
+      state: [{ name: "count", initialValue: "0", type: "number" }],
+      bindings: [
+        { nodeId: "label_0", property: "text", stateVar: "count", dependencies: ["count"] },
+      ],
+    };
+
+    const brs = emitBrightScript(component);
+    expect(brs).toContain("dirty: { count: true }");
+  });
+
+  it("emits version comment v0.4", () => {
+    const component: IRComponent = {
+      name: "Test",
+      extends: "Group",
+      scriptUri: "pkg:/components/Test.brs",
+      children: [],
+    };
+
+    const brs = emitBrightScript(component);
+    expect(brs).toContain("v0.4");
+  });
+});
+
+
+describe("emitBrightScript - v0.4 regression", () => {
   it("v0.1 static-only component still works (no state)", () => {
     const component: IRComponent = {
       name: "Static",
@@ -904,7 +1034,7 @@ describe("emitBrightScript - v0.3 regression", () => {
 
     const brs = emitBrightScript(component);
 
-    expect(brs).toContain("v0.3");
+    expect(brs).toContain("v0.4");
     expect(brs).toContain("function init()");
     expect(brs).not.toContain("m.state");
     expect(brs).not.toContain("m_update");
@@ -926,8 +1056,8 @@ describe("emitBrightScript - v0.3 regression", () => {
 
     const brs = emitBrightScript(component);
 
-    expect(brs).toContain("v0.3");
-    expect(brs).toContain("m.state = { count: 0, dirty: {} }");
+    expect(brs).toContain("v0.4");
+    expect(brs).toContain("m.state = { count: 0, dirty: { count: true } }");
     expect(brs).toContain("m_update()");
     expect(brs).not.toContain("ContentNode");
   });

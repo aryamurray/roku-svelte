@@ -12,6 +12,12 @@ export function emitXML(component: IRComponent): string {
     `  <script type="text/brightscript" uri="${escapeXml(component.scriptUri)}" />`,
   );
 
+  if (component.requiresRuntime) {
+    lines.push(
+      '  <script type="text/brightscript" uri="pkg:/source/runtime/Fetch.brs" />',
+    );
+  }
+
   if (component.children.length > 0) {
     lines.push("  <children>");
     for (const child of component.children) {

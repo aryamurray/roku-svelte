@@ -95,6 +95,7 @@ interface BuildContext {
   eachContext: EachContext | null;
   componentName: string;
   eachCounter: number;
+  usesFetch: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,6 +147,7 @@ export function buildIR(
     eachContext: null,
     componentName: name,
     eachCounter: 0,
+    usesFetch: false,
   };
 
   // Extract state and handlers from <script>
@@ -195,6 +197,38 @@ export function buildIR(
   }
   if (ctx.itemComponents.length > 0) {
     component.itemComponents = ctx.itemComponents;
+  }
+
+  // Back-fill arrayItemFields for fetch-sourced state vars
+  for (const sv of ctx.stateVars) {
+    if (sv.fetchCall && !sv.arrayItemFields) {
+      const eachBlock = ctx.eachBlocks.find((eb) => eb.arrayVar === sv.name);
+      if (eachBlock) {
+        const itemComp = ctx.itemComponents.find((ic) => ic.name === eachBlock.itemComponentName);
+        if (itemComp) {
+          const fieldNames = new Set<string>();
+          const fields: IRArrayItemField[] = [];
+          for (const fb of itemComp.fieldBindings) {
+            if (fb.textParts) {
+              for (const part of fb.textParts) {
+                if (part.type === "field" && !fieldNames.has(part.value)) {
+                  fieldNames.add(part.value);
+                  fields.push({ name: part.value, type: "string" });
+                }
+              }
+            } else if (!fieldNames.has(fb.field)) {
+              fieldNames.add(fb.field);
+              fields.push({ name: fb.field, type: "string" });
+            }
+          }
+          sv.arrayItemFields = fields;
+        }
+      }
+    }
+  }
+
+  if (ctx.usesFetch) {
+    component.requiresRuntime = true;
   }
 
   return { component, warnings: ctx.warnings, errors: ctx.errors };
@@ -255,6 +289,12 @@ function extractState(instance: any, ctx: BuildContext): void {
           });
         } else if (decl.init.type === "ArrayExpression") {
           extractArrayState(name, decl.init, decl.start ?? 0, ctx);
+        } else if (
+          decl.init.type === "CallExpression" &&
+          decl.init.callee?.type === "Identifier" &&
+          decl.init.callee?.name === "fetch"
+        ) {
+          extractFetchState(name, decl.init, decl.start ?? 0, ctx);
         } else {
           ctx.errors.push(
             createError(
@@ -353,6 +393,43 @@ function extractArrayState(name: string, arrayExpr: any, offset: number, ctx: Bu
     arrayItemFields,
     arrayItems,
   });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractFetchState(name: string, callExpr: any, offset: number, ctx: BuildContext): void {
+  const args = callExpr.arguments;
+
+  // Extract URL — can be any expression now
+  let url = "";
+  let urlIsLiteral = false;
+  if (args && args.length > 0) {
+    if (args[0].type === "Literal" && typeof args[0].value === "string") {
+      url = args[0].value as string;
+      urlIsLiteral = true;
+    } else {
+      // Dynamic URL — extract source text
+      url = ctx.source.slice(args[0].start, args[0].end);
+      urlIsLiteral = false;
+    }
+  }
+
+  // Extract options if present
+  let hasOptions = false;
+  let optionsSource: string | undefined;
+  if (args && args.length > 1) {
+    hasOptions = true;
+    optionsSource = ctx.source.slice(args[1].start, args[1].end);
+  }
+
+  ctx.stateVarNames.add(name);
+  ctx.stateVars.push({
+    name,
+    initialValue: "",
+    type: "array",
+    fetchCall: { url, urlIsLiteral, hasOptions, optionsSource },
+  });
+
+  ctx.usesFetch = true;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

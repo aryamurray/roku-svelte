@@ -30,6 +30,7 @@ export interface CompileResult {
   warnings: CompileWarning[];
   errors: CompileError[];
   additionalComponents?: AdditionalComponent[];
+  requiresRuntime?: boolean;
 }
 
 export function compile(
@@ -99,5 +100,7 @@ export function compile(
     }
   }
 
-  return { xml, brightscript, warnings, errors, additionalComponents };
+  const requiresRuntime = irResult.component.requiresRuntime || undefined;
+
+  return { xml, brightscript, warnings, errors, additionalComponents, requiresRuntime };
 }

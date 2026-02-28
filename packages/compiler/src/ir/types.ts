@@ -34,12 +34,20 @@ export interface IRArrayItem {
   fields: Record<string, string>;
 }
 
+export interface IRFetchCall {
+  url: string;
+  urlIsLiteral: boolean;
+  hasOptions: boolean;
+  optionsSource?: string;
+}
+
 export interface IRStateVariable {
   name: string;
   initialValue: string;
   type: "number" | "string" | "boolean" | "array";
   arrayItemFields?: IRArrayItemField[];
   arrayItems?: IRArrayItem[];
+  fetchCall?: IRFetchCall;
 }
 
 export interface IRTextPart {
@@ -114,4 +122,5 @@ export interface IRComponent {
   autofocusNodeId?: string;
   eachBlocks?: IREachBlock[];
   itemComponents?: IRItemComponent[];
+  requiresRuntime?: boolean;
 }

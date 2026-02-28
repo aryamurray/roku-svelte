@@ -253,3 +253,33 @@ describe("emitItemComponentXML", () => {
     expect(xml).toContain('id="label_1"');
   });
 });
+
+// === v0.4 — Runtime script ===
+
+describe("emitXML - v0.4 runtime script", () => {
+  it("includes runtime Fetch.brs script when requiresRuntime is true", () => {
+    const component: IRComponent = {
+      name: "FetchList",
+      extends: "Group",
+      scriptUri: "pkg:/components/FetchList.brs",
+      children: [],
+      requiresRuntime: true,
+    };
+
+    const xml = emitXML(component);
+    expect(xml).toContain('uri="pkg:/source/runtime/Fetch.brs"');
+  });
+
+  it("does not include runtime script when requiresRuntime is absent", () => {
+    const component: IRComponent = {
+      name: "Static",
+      extends: "Group",
+      scriptUri: "pkg:/components/Static.brs",
+      children: [],
+    };
+
+    const xml = emitXML(component);
+    expect(xml).not.toContain("runtime");
+    expect(xml).not.toContain("Fetch.brs");
+  });
+});

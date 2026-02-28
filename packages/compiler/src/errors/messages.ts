@@ -27,8 +27,8 @@ export const ERROR_MESSAGES: Record<string, ErrorDefinition> = {
     fatal: true,
   },
   [ErrorCode.NO_FETCH]: {
-    message: "fetch() is not available on Roku devices",
-    hint: "Network requests will use roUrlTransfer in v0.4. For now, use static data.",
+    message: "fetch() is only supported as a state initializer",
+    hint: "fetch() can only be used as a state initializer in v0.4. Full async support coming in v0.5.",
     docsUrl: `${DOCS_BASE}/no-fetch`,
     fatal: true,
   },

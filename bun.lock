@@ -40,6 +40,14 @@
         "typescript-eslint": "^8.50.0",
       },
     },
+    "packages/runtime": {
+      "name": "@svelte-roku/runtime",
+      "version": "0.4.0",
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "typescript": "5.9.2",
+      },
+    },
     "packages/typescript-config": {
       "name": "@repo/typescript-config",
       "version": "0.0.0",
@@ -189,6 +197,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.59.0", "", { "os": "win32", "cpu": "x64" }, "sha512-2HRCml6OztYXyJXAvdDXPKcawukWY2GpR5/nxKp4iBgiO3wcoEGkAaqctIbZcNB6KlUQBIqt8VYkNSj2397EfA=="],
 
     "@svelte-roku/compiler": ["@svelte-roku/compiler@workspace:packages/compiler"],
+
+    "@svelte-roku/runtime": ["@svelte-roku/runtime@workspace:packages/runtime"],
 
     "@sveltejs/acorn-typescript": ["@sveltejs/acorn-typescript@1.0.9", "", { "peerDependencies": { "acorn": "^8.9.0" } }, "sha512-lVJX6qEgs/4DOcRTpo56tmKzVPtoWAaVbL4hfO7t7NVwl9AAXzQR6cihesW1BmNMPl+bK6dreu2sOKBP2Q9CIA=="],
 

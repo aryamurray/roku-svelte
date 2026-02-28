@@ -707,6 +707,92 @@ describe("buildIR - {#each} block handling", () => {
   });
 });
 
+// === v0.4 — fetch state extraction ===
+
+describe("buildIR - fetch state extraction", () => {
+  it("extracts fetch-sourced state variable with URL and taskComponentName", () => {
+    const source = `<script>let movies = fetch("/api/movies")</script><list>{#each movies as movie}<text>{movie.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    const sv = component.state![0]!;
+    expect(sv.name).toBe("movies");
+    expect(sv.type).toBe("array");
+    expect(sv.fetchCall).toBeDefined();
+    expect(sv.fetchCall!.url).toBe("/api/movies");
+    expect(sv.fetchCall!.urlIsLiteral).toBe(true);
+    expect(sv.fetchCall!.hasOptions).toBe(false);
+  });
+
+  it("back-fills arrayItemFields from template field bindings", () => {
+    const source = `<script>let movies = fetch("/api/movies")</script><list>{#each movies as movie}<text>{movie.title}</text><text>{movie.year}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const sv = component.state![0]!;
+    expect(sv.arrayItemFields).toBeDefined();
+    expect(sv.arrayItemFields).toHaveLength(2);
+    expect(sv.arrayItemFields![0]).toEqual({ name: "title", type: "string" });
+    expect(sv.arrayItemFields![1]).toEqual({ name: "year", type: "string" });
+  });
+
+  it("back-fill works correctly with mixed static + fetch state", () => {
+    const source = `<script>let count = 0; let movies = fetch("/api/movies")</script><text>{count}</text><list>{#each movies as movie}<text>{movie.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    // Static state should be unaffected
+    expect(component.state).toHaveLength(2);
+    expect(component.state![0]!.name).toBe("count");
+    expect(component.state![0]!.type).toBe("number");
+    expect(component.state![0]!.fetchCall).toBeUndefined();
+
+    // Fetch state should have back-filled fields
+    expect(component.state![1]!.name).toBe("movies");
+    expect(component.state![1]!.fetchCall).toBeDefined();
+    expect(component.state![1]!.arrayItemFields).toHaveLength(1);
+    expect(component.state![1]!.arrayItemFields![0]).toEqual({ name: "title", type: "string" });
+  });
+
+  it("sets requiresRuntime when fetch is used", () => {
+    const source = `<script>let movies = fetch("/api/movies")</script><list>{#each movies as movie}<text>{movie.title}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.requiresRuntime).toBe(true);
+  });
+
+  it("accepts dynamic URL and sets urlIsLiteral: false", () => {
+    const source = `<script>let data = fetch(someVar)</script><text>Loading</text>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state![0]!.fetchCall!.urlIsLiteral).toBe(false);
+    expect(component.state![0]!.fetchCall!.url).toBe("someVar");
+  });
+
+  it("accepts fetch with options", () => {
+    const source = `<script>let data = fetch("/api", { method: "POST" })</script><text>Loading</text>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state![0]!.fetchCall!.hasOptions).toBe(true);
+    expect(component.state![0]!.fetchCall!.optionsSource).toContain("method");
+  });
+
+  it("sets requiresRuntime when multiple fetch calls exist", () => {
+    const source = `<script>let a = fetch("/api/a"); let b = fetch("/api/b")</script><list>{#each a as item}<text>{item.name}</text>{/each}</list><list>{#each b as item}<text>{item.name}</text>{/each}</list>`;
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    // Both state vars should have fetchCall defined
+    expect(component.requiresRuntime).toBe(true);
+    expect(component.state![0]!.fetchCall).toBeDefined();
+    expect(component.state![1]!.fetchCall).toBeDefined();
+  });
+});
+
 describe("cssColorToRokuHex", () => {
   it("converts #rrggbb", () => {
     expect(cssColorToRokuHex("#ff0000")).toBe("0xff0000ff");
