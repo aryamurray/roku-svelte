@@ -66,13 +66,18 @@ export function compile(
     return { xml: "", brightscript: "", warnings, errors };
   }
 
-  const { component, warnings: irWarnings } = buildIR(ast, source, filename, {
+  const irResult = buildIR(ast, source, filename, {
     isEntry: options?.isEntry,
   });
-  warnings.push(...irWarnings);
+  warnings.push(...irResult.warnings);
+  errors.push(...irResult.errors);
 
-  const xml = emitXML(component);
-  const brightscript = emitBrightScript(component);
+  if (errors.some((e) => e.fatal)) {
+    return { xml: "", brightscript: "", warnings, errors };
+  }
+
+  const xml = emitXML(irResult.component);
+  const brightscript = emitBrightScript(irResult.component);
 
   return { xml, brightscript, warnings, errors };
 }

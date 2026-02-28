@@ -7,6 +7,8 @@ import { noDom } from "./rules/no-dom.js";
 import { noAwaitBlock } from "./rules/no-await-block.js";
 import { noGestures } from "./rules/no-gestures.js";
 import { unknownImport } from "./rules/unknown-import.js";
+import { noComplexExpressions } from "./rules/no-complex-expressions.js";
+import { noInlineHandlers } from "./rules/no-inline-handlers.js";
 
 export interface ValidationResult {
   errors: CompileError[];
@@ -27,6 +29,8 @@ const rules: ValidationRule[] = [
   noAwaitBlock,
   noGestures,
   unknownImport,
+  noComplexExpressions,
+  noInlineHandlers,
 ];
 
 export function validate(

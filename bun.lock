@@ -15,6 +15,8 @@
       "version": "0.1.0",
       "dependencies": {
         "estree-walker": "^3.0.3",
+        "magic-string": "^0.30.21",
+        "pathe": "^2.0.3",
         "svelte": "^5.0.0",
       },
       "devDependencies": {

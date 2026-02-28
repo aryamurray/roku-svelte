@@ -1,3 +1,4 @@
+import MagicString from "magic-string";
 import type { IRComponent, IRNode } from "../ir/types.js";
 
 export function emitXML(component: IRComponent): string {
@@ -21,7 +22,9 @@ export function emitXML(component: IRComponent): string {
 
   lines.push("</component>");
 
-  return lines.join("\n");
+  // Use MagicString as output buffer — ready for .generateMap() later
+  const ms = new MagicString(lines.join("\n"));
+  return ms.toString();
 }
 
 function emitNode(node: IRNode, lines: string[], indent: number): void {
@@ -49,6 +52,10 @@ function buildAttributes(node: IRNode): string {
     if (!prop.dynamic) {
       attrs.push(`${escapeXml(prop.name)}="${escapeXml(prop.value)}"`);
     }
+  }
+
+  if (node.focusable) {
+    attrs.push('focusable="true"');
   }
 
   return attrs.length > 0 ? " " + attrs.join(" ") : "";

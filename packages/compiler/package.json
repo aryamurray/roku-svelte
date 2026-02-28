@@ -19,8 +19,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "svelte": "^5.0.0",
-    "estree-walker": "^3.0.3"
+    "estree-walker": "^3.0.3",
+    "magic-string": "^0.30.21",
+    "pathe": "^2.0.3",
+    "svelte": "^5.0.0"
   },
   "devDependencies": {
     "@repo/eslint-config": "*",

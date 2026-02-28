@@ -116,6 +116,397 @@ describe("buildIR", () => {
   });
 });
 
+describe("buildIR - state extraction", () => {
+  it("extracts let declarations as number state", () => {
+    const source = "<script>let count = 0;</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    expect(component.state![0]).toEqual({
+      name: "count",
+      initialValue: "0",
+      type: "number",
+    });
+  });
+
+  it("extracts let declarations as string state", () => {
+    const source = '<script>let name = "world";</script><text>Hello</text>';
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    expect(component.state![0]).toEqual({
+      name: "name",
+      initialValue: "world",
+      type: "string",
+    });
+  });
+
+  it("extracts let declarations as boolean state", () => {
+    const source = "<script>let active = true;</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    expect(component.state![0]).toEqual({
+      name: "active",
+      initialValue: "true",
+      type: "boolean",
+    });
+  });
+
+  it("defaults uninitialized let to number 0", () => {
+    const source = "<script>let x;</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    expect(component.state![0]).toEqual({
+      name: "x",
+      initialValue: "0",
+      type: "number",
+    });
+  });
+
+  it("skips const declarations (not reactive)", () => {
+    const source = "<script>const PI = 3.14;</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toBeUndefined();
+  });
+
+  it("extracts multiple state variables", () => {
+    const source =
+      '<script>let count = 0; let label = "hi"; let visible = true;</script><text>Hello</text>';
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(3);
+    expect(component.state![0]!.name).toBe("count");
+    expect(component.state![1]!.name).toBe("label");
+    expect(component.state![2]!.name).toBe("visible");
+  });
+
+  it("errors on non-literal state init", () => {
+    const source = "<script>let x = someFunction();</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.code).toBe("UNSUPPORTED_STATE_INIT");
+  });
+
+  it("extracts negative number state init", () => {
+    const source = "<script>let x = -5;</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    expect(component.state![0]).toEqual({
+      name: "x",
+      initialValue: "-5",
+      type: "number",
+    });
+  });
+
+  it("extracts false boolean state", () => {
+    const source = "<script>let active = false;</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    expect(component.state![0]).toEqual({
+      name: "active",
+      initialValue: "false",
+      type: "boolean",
+    });
+  });
+
+  it("extracts state alongside const declarations", () => {
+    const source =
+      "<script>const PI = 3.14; let count = 0; const NAME = 'test';</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.state).toHaveLength(1);
+    expect(component.state![0]!.name).toBe("count");
+  });
+});
+
+describe("buildIR - handler extraction", () => {
+  it("extracts handler with increment", () => {
+    const source =
+      "<script>let count = 0; function increment() { count++; }</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.handlers).toHaveLength(1);
+    expect(component.handlers![0]!.name).toBe("increment");
+    expect(component.handlers![0]!.statements).toEqual([
+      { type: "increment", variable: "count" },
+    ]);
+    expect(component.handlers![0]!.mutatedVariables).toEqual(["count"]);
+  });
+
+  it("extracts handler with decrement", () => {
+    const source =
+      "<script>let count = 0; function decrement() { count--; }</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.handlers![0]!.statements).toEqual([
+      { type: "decrement", variable: "count" },
+    ]);
+  });
+
+  it("extracts handler with assign-literal", () => {
+    const source =
+      "<script>let count = 0; function reset() { count = 0; }</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.handlers![0]!.statements).toEqual([
+      { type: "assign-literal", variable: "count", value: "0" },
+    ]);
+  });
+
+  it("extracts handler with assign-negate", () => {
+    const source =
+      "<script>let active = true; function toggle() { active = !active; }</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.handlers![0]!.statements).toEqual([
+      { type: "assign-negate", variable: "active" },
+    ]);
+  });
+
+  it("extracts handler with assign-add", () => {
+    const source =
+      "<script>let count = 0; function addFive() { count = count + 5; }</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.handlers![0]!.statements).toEqual([
+      { type: "assign-add", variable: "count", operand: "5" },
+    ]);
+  });
+
+  it("extracts handler with assign-sub", () => {
+    const source =
+      "<script>let count = 10; function subThree() { count = count - 3; }</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.handlers![0]!.statements).toEqual([
+      { type: "assign-sub", variable: "count", operand: "3" },
+    ]);
+  });
+
+  it("errors on unsupported handler body", () => {
+    const source =
+      "<script>let count = 0; function bad() { count = someFunction(count); }</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.code).toBe("UNSUPPORTED_HANDLER_BODY");
+  });
+
+  it("extracts handler with multiple statements", () => {
+    const source =
+      '<script>let count = 0; let label = "a"; function multi() { count++; label = "b"; }</script><text>Hello</text>';
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.handlers![0]!.name).toBe("multi");
+    expect(component.handlers![0]!.statements).toHaveLength(2);
+    expect(component.handlers![0]!.statements[0]).toEqual({
+      type: "increment",
+      variable: "count",
+    });
+    expect(component.handlers![0]!.statements[1]).toEqual({
+      type: "assign-literal",
+      variable: "label",
+      value: "b",
+    });
+    expect(component.handlers![0]!.mutatedVariables).toEqual(["count", "label"]);
+  });
+
+  it("errors when handler mutates non-state variable", () => {
+    const source =
+      "<script>let count = 0; function bad() { unknown++; }</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.code).toBe("UNSUPPORTED_HANDLER_BODY");
+  });
+
+  it("extracts empty handler (no statements)", () => {
+    const source =
+      "<script>let count = 0; function noop() {}</script><text>Hello</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.handlers![0]!.name).toBe("noop");
+    expect(component.handlers![0]!.statements).toEqual([]);
+    expect(component.handlers![0]!.mutatedVariables).toEqual([]);
+  });
+});
+
+describe("buildIR - bindings", () => {
+  it("extracts expression binding from text content", () => {
+    const source =
+      "<script>let count = 0;</script><text>{count}</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.bindings).toHaveLength(1);
+    expect(component.bindings![0]!.property).toBe("text");
+    expect(component.bindings![0]!.stateVar).toBe("count");
+    expect(component.bindings![0]!.dependencies).toEqual(["count"]);
+  });
+
+  it("extracts mixed text bindings with textParts", () => {
+    const source =
+      "<script>let count = 0;</script><text>Count: {count}</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.bindings).toHaveLength(1);
+    const binding = component.bindings![0]!;
+    expect(binding.textParts).toBeDefined();
+    expect(binding.textParts).toEqual([
+      { type: "static", value: "Count:" },
+      { type: "dynamic", value: "count" },
+    ]);
+  });
+
+  it("extracts attribute binding", () => {
+    const source =
+      "<script>let active = true;</script><rectangle visible={active} />";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.bindings).toHaveLength(1);
+    expect(component.bindings![0]!.property).toBe("visible");
+    expect(component.bindings![0]!.stateVar).toBe("active");
+  });
+
+  it("errors on unknown state ref in text", () => {
+    const source = "<script>let count = 0;</script><text>{unknown}</text>";
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.code).toBe("UNKNOWN_STATE_REF");
+  });
+
+  it("errors on unknown state ref in attribute", () => {
+    const source = "<script>let count = 0;</script><rectangle visible={unknown} />";
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.code).toBe("UNKNOWN_STATE_REF");
+  });
+
+  it("extracts multiple bindings on same node", () => {
+    const source =
+      "<script>let show = true; let alpha = 1;</script><rectangle visible={show} opacity={alpha} />";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.bindings).toHaveLength(2);
+    expect(component.bindings![0]!.property).toBe("visible");
+    expect(component.bindings![0]!.stateVar).toBe("show");
+    expect(component.bindings![1]!.property).toBe("opacity");
+    expect(component.bindings![1]!.stateVar).toBe("alpha");
+  });
+
+  it("extracts mixed text with multiple dynamic vars", () => {
+    const source =
+      '<script>let first = "John"; let last = "Doe";</script><text>{first} {last}</text>';
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.bindings).toHaveLength(1);
+    const binding = component.bindings![0]!;
+    expect(binding.dependencies).toContain("first");
+    expect(binding.dependencies).toContain("last");
+    expect(binding.textParts!.filter((p) => p.type === "dynamic")).toHaveLength(2);
+  });
+
+  it("does not add static text property for dynamic-only text", () => {
+    const source =
+      "<script>let count = 0;</script><text>{count}</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    const label = component.children[0]!;
+    // text property should not be in static properties
+    expect(label.properties.find((p) => p.name === "text")).toBeUndefined();
+    expect(label.textContent).toBeUndefined();
+  });
+});
+
+describe("buildIR - events", () => {
+  it("extracts on:select events", () => {
+    const source =
+      "<script>let count = 0; function increment() { count++; }</script><text on:select={increment} focusable>{count}</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.events).toHaveLength(1);
+    expect(component.events![0]!.eventType).toBe("select");
+    expect(component.events![0]!.handlerName).toBe("increment");
+  });
+
+  it("errors on unknown handler reference", () => {
+    const source =
+      "<script>let count = 0;</script><text on:select={nonExistent} focusable>{count}</text>";
+    const ast = parseSource(source);
+    const { errors } = buildIR(ast, source, "Test.svelte");
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.code).toBe("UNKNOWN_HANDLER");
+  });
+});
+
+describe("buildIR - focus", () => {
+  it("detects focusable attribute", () => {
+    const source =
+      "<script>let count = 0; function inc() { count++; }</script><text on:select={inc} focusable>{count}</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.children[0]!.focusable).toBe(true);
+  });
+
+  it("detects autofocus attribute", () => {
+    const source =
+      "<script>let count = 0; function inc() { count++; }</script><text on:select={inc} focusable autofocus>{count}</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.autofocusNodeId).toBe("label_0");
+    expect(component.children[0]!.focusable).toBe(true);
+  });
+
+  it("autofocus implies focusable", () => {
+    const source =
+      "<script>let count = 0; function inc() { count++; }</script><text on:select={inc} autofocus>{count}</text>";
+    const ast = parseSource(source);
+    const { component } = buildIR(ast, source, "Test.svelte");
+
+    expect(component.children[0]!.focusable).toBe(true);
+    expect(component.autofocusNodeId).toBe("label_0");
+  });
+});
+
 describe("cssColorToRokuHex", () => {
   it("converts #rrggbb", () => {
     expect(cssColorToRokuHex("#ff0000")).toBe("0xff0000ff");

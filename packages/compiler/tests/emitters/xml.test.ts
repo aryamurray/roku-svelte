@@ -101,4 +101,43 @@ describe("emitXML", () => {
     expect(xml).toContain("&amp;");
     expect(xml).toContain("&quot;");
   });
+
+  it("emits focusable attribute", () => {
+    const component: IRComponent = {
+      name: "Focusable",
+      extends: "Group",
+      scriptUri: "pkg:/components/Focusable.brs",
+      children: [
+        {
+          id: "label_0",
+          type: "Label",
+          properties: [],
+          children: [],
+          focusable: true,
+        },
+      ],
+    };
+
+    const xml = emitXML(component);
+    expect(xml).toContain('focusable="true"');
+  });
+
+  it("does not emit focusable when not set", () => {
+    const component: IRComponent = {
+      name: "NoFocus",
+      extends: "Group",
+      scriptUri: "pkg:/components/NoFocus.brs",
+      children: [
+        {
+          id: "label_0",
+          type: "Label",
+          properties: [{ name: "text", value: "Hello" }],
+          children: [],
+        },
+      ],
+    };
+
+    const xml = emitXML(component);
+    expect(xml).not.toContain("focusable");
+  });
 });
