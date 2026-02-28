@@ -34,15 +34,15 @@ export const ERROR_MESSAGES: Record<string, ErrorDefinition> = {
   },
   [ErrorCode.NO_TIMERS]: {
     message:
-      "setTimeout/setInterval are not available on Roku devices",
-    hint: "Timer support via roTimeSpan is planned for a future version.",
+      "requestAnimationFrame/cancelAnimationFrame are not available on Roku",
+    hint: "Roku renders at its own framerate. Use setTimeout/setInterval for timed operations instead.",
     docsUrl: `${DOCS_BASE}/no-timers`,
     fatal: true,
   },
   [ErrorCode.NO_DOM]: {
     message:
-      "DOM APIs (document, window, navigator) are not available on Roku",
-    hint: "Roku uses SceneGraph nodes instead of DOM elements. Use <rectangle>, <text>, etc.",
+      "DOM APIs (document, HTMLElement, Element, Node) are not available on Roku",
+    hint: "Roku uses SceneGraph nodes instead of DOM elements. Use <rectangle>, <text>, etc. Use `typeof document !== 'undefined'` to guard web-only code.",
     docsUrl: `${DOCS_BASE}/no-dom`,
     fatal: true,
   },
@@ -160,6 +160,12 @@ export const ERROR_MESSAGES: Record<string, ErrorDefinition> = {
     message: 'Functional array method "{method}" cannot be used in template expressions',
     hint: "Methods like .map(), .filter(), .reduce() require multi-line expansion and can only be used in event handlers, not in {expression} template bindings.",
     docsUrl: `${DOCS_BASE}/functional-in-template`,
+    fatal: true,
+  },
+  [ErrorCode.NO_WORKERS]: {
+    message: "Web Workers are not available on Roku",
+    hint: "Roku has no thread model compatible with Web Workers. Use single-threaded patterns instead.",
+    docsUrl: `${DOCS_BASE}/no-workers`,
     fatal: true,
   },
 };

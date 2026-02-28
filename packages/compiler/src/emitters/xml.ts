@@ -1,5 +1,6 @@
 import MagicString from "magic-string";
 import type { IRComponent, IRNode, IRItemComponent } from "../ir/types.js";
+import { POLYFILL_SCRIPTS } from "../transpiler/browser.js";
 
 export function emitXML(component: IRComponent): string {
   const lines: string[] = [];
@@ -22,6 +23,15 @@ export function emitXML(component: IRComponent): string {
     lines.push(
       '  <script type="text/brightscript" uri="pkg:/source/runtime/Stdlib.brs" />',
     );
+  }
+
+  if (component.requiredPolyfills) {
+    for (const polyfill of component.requiredPolyfills) {
+      const uri = POLYFILL_SCRIPTS[polyfill];
+      if (uri) {
+        lines.push(`  <script type="text/brightscript" uri="${uri}" />`);
+      }
+    }
   }
 
   if (component.children.length > 0) {

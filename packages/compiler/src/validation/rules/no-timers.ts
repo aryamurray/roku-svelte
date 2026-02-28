@@ -5,10 +5,6 @@ import type { CompileError } from "../../errors/types.js";
 import { createError, locationFromOffset } from "../../errors/formatter.js";
 
 const TIMER_GLOBALS = new Set([
-  "setTimeout",
-  "setInterval",
-  "clearTimeout",
-  "clearInterval",
   "requestAnimationFrame",
   "cancelAnimationFrame",
 ]);

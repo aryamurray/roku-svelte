@@ -5,4 +5,12 @@ export const RUNTIME_FILES = [
   "FetchTask.xml",
   "MicrotaskQueue.brs",
   "Stdlib.brs",
+  "Timers.brs",
+  "Storage.brs",
+  "DatePolyfill.brs",
+  "URLPolyfill.brs",
+  "Base64.brs",
+  "EventTarget.brs",
+  "FetchAPI.brs",
+  "Collections.brs",
 ] as const;

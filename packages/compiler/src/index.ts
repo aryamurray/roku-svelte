@@ -32,6 +32,7 @@ export interface CompileResult {
   additionalComponents?: AdditionalComponent[];
   requiresRuntime?: boolean;
   requiresStdlib?: boolean;
+  requiredPolyfills?: string[];
 }
 
 export function compile(
@@ -103,6 +104,9 @@ export function compile(
 
   const requiresRuntime = irResult.component.requiresRuntime || undefined;
   const requiresStdlib = irResult.component.requiresStdlib || undefined;
+  const requiredPolyfills = irResult.component.requiredPolyfills
+    ? [...irResult.component.requiredPolyfills]
+    : undefined;
 
-  return { xml, brightscript, warnings, errors, additionalComponents, requiresRuntime, requiresStdlib };
+  return { xml, brightscript, warnings, errors, additionalComponents, requiresRuntime, requiresStdlib, requiredPolyfills };
 }

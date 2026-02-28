@@ -44,6 +44,7 @@ export const ErrorCode = {
   EACH_OUTER_STATE_REF: "EACH_OUTER_STATE_REF",
   UNSUPPORTED_STDLIB_METHOD: "UNSUPPORTED_STDLIB_METHOD",
   FUNCTIONAL_IN_TEMPLATE: "FUNCTIONAL_IN_TEMPLATE",
+  NO_WORKERS: "NO_WORKERS",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -1,4 +1,4 @@
 <script>
   requestAnimationFrame(() => {})
 </script>
-<text>Tick</text>
+<text>RAF</text>

@@ -9,6 +9,7 @@ import { noGestures } from "./rules/no-gestures.js";
 import { unknownImport } from "./rules/unknown-import.js";
 import { noComplexExpressions } from "./rules/no-complex-expressions.js";
 import { noInlineHandlers } from "./rules/no-inline-handlers.js";
+import { noWorkers } from "./rules/no-workers.js";
 
 export interface ValidationResult {
   errors: CompileError[];
@@ -31,6 +32,7 @@ const rules: ValidationRule[] = [
   unknownImport,
   noComplexExpressions,
   noInlineHandlers,
+  noWorkers,
 ];
 
 export function validate(

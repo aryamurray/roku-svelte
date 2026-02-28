@@ -24,6 +24,9 @@ function createCtx(overrides?: Partial<TranspileContext>): TranspileContext {
     source: "",
     filename: "Test.svelte",
     usesStdlib: false,
+    requiredPolyfills: new Set(),
+    extractedCallbacks: [],
+    callbackCounter: 0,
     ...overrides,
   };
 }
@@ -770,7 +773,15 @@ describe("canTranspileAsSingleExpression", () => {
     expect(canTranspileAsSingleExpression(parseExpr("true ? 1 : 2"))).toBe(true);
   });
 
-  it("returns false for NewExpression", () => {
-    expect(canTranspileAsSingleExpression({ type: "NewExpression" })).toBe(false);
+  it("returns false for unknown NewExpression", () => {
+    expect(canTranspileAsSingleExpression({ type: "NewExpression", callee: { name: "Unknown" } })).toBe(false);
+  });
+
+  it("returns true for known NewExpression (Date)", () => {
+    expect(canTranspileAsSingleExpression({ type: "NewExpression", callee: { name: "Date" } })).toBe(true);
+  });
+
+  it("returns true for typeof expression", () => {
+    expect(canTranspileAsSingleExpression({ type: "UnaryExpression", operator: "typeof", argument: { type: "Identifier", name: "window" } })).toBe(true);
   });
 });

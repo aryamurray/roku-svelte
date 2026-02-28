@@ -99,6 +99,9 @@ interface BuildContext {
   usesFetch: boolean;
   usesStdlib: boolean;
   constNames: Set<string>;
+  requiredPolyfills: Set<string>;
+  extractedCallbacks: IRHandler[];
+  callbackCounter: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -153,6 +156,9 @@ export function buildIR(
     usesFetch: false,
     usesStdlib: false,
     constNames: new Set(),
+    requiredPolyfills: new Set(),
+    extractedCallbacks: [],
+    callbackCounter: 0,
   };
 
   // Extract state and handlers from <script>
@@ -238,6 +244,14 @@ export function buildIR(
 
   if (ctx.usesStdlib) {
     component.requiresStdlib = true;
+  }
+
+  if (ctx.requiredPolyfills.size > 0) {
+    component.requiredPolyfills = ctx.requiredPolyfills;
+  }
+
+  if (ctx.extractedCallbacks.length > 0) {
+    component.extractedCallbacks = ctx.extractedCallbacks;
   }
 
   return { component, warnings: ctx.warnings, errors: ctx.errors };
@@ -1189,6 +1203,7 @@ function extractTextContentWithBindings(
           if (tCtx.usesStdlib) {
             ctx.usesStdlib = true;
           }
+          mergePolyfillContext(tCtx, ctx);
           // Store the transpiled expression — will be used for binding
           const deps = result.dependencies.filter(d => ctx.stateVarNames.has(d));
           // Create a binding with brsExpression
@@ -1340,6 +1355,9 @@ function createTranspileContext(ctx: BuildContext): TranspileContext {
     source: ctx.source,
     filename: ctx.filename,
     usesStdlib: false,
+    requiredPolyfills: new Set(),
+    extractedCallbacks: [],
+    callbackCounter: ctx.callbackCounter,
   };
 }
 
@@ -1364,6 +1382,8 @@ function tryTranspileAssignment(
   if (tCtx.usesStdlib) {
     ctx.usesStdlib = true;
   }
+
+  mergePolyfillContext(tCtx, ctx);
 
   statements.push({
     type: "assign-expr",
@@ -1410,6 +1430,8 @@ function tryTranspileStatement(
     ctx.usesStdlib = true;
   }
 
+  mergePolyfillContext(tCtx, ctx);
+
   // Check if any state vars were mutated (e.g., arr.push() mutates the array)
   for (const dep of result.dependencies) {
     if (ctx.stateVarNames.has(dep) && !mutatedVariables.includes(dep)) {
@@ -1429,6 +1451,17 @@ function tryTranspileStatement(
   });
 
   return true;
+}
+
+function mergePolyfillContext(tCtx: TranspileContext, ctx: BuildContext): void {
+  for (const p of tCtx.requiredPolyfills) {
+    ctx.requiredPolyfills.add(p);
+  }
+  for (const cb of tCtx.extractedCallbacks) {
+    ctx.extractedCallbacks.push(cb);
+  }
+  // Sync callback counter back
+  ctx.callbackCounter = tCtx.callbackCounter;
 }
 
 function parseInlineStyle(

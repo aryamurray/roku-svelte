@@ -4,14 +4,14 @@ import { ErrorCode } from "../../errors/types.js";
 import type { CompileError } from "../../errors/types.js";
 import { createError, locationFromOffset } from "../../errors/formatter.js";
 
-const DOM_GLOBALS = new Set([
-  "document",
-  "HTMLElement",
-  "Element",
-  "Node",
+const WORKER_GLOBALS = new Set([
+  "Worker",
+  "SharedWorker",
+  "ServiceWorker",
+  "importScripts",
 ]);
 
-export function noDom(
+export function noWorkers(
   ast: AST.Root,
   source: string,
   filename: string,
@@ -25,14 +25,28 @@ export function noDom(
       enter(node: any, parent: any) {
         if (
           node.type === "Identifier" &&
-          DOM_GLOBALS.has(node.name ?? "")
+          WORKER_GLOBALS.has(node.name ?? "")
         ) {
           if (parent?.type === "MemberExpression" && parent.property === node) {
             return;
           }
           errors.push(
             createError(
-              ErrorCode.NO_DOM,
+              ErrorCode.NO_WORKERS,
+              locationFromOffset(source, node.start ?? 0, filename),
+            ),
+          );
+        }
+
+        // Also catch postMessage as a global call (not method)
+        if (
+          node.type === "CallExpression" &&
+          node.callee?.type === "Identifier" &&
+          node.callee.name === "postMessage"
+        ) {
+          errors.push(
+            createError(
+              ErrorCode.NO_WORKERS,
               locationFromOffset(source, node.start ?? 0, filename),
             ),
           );

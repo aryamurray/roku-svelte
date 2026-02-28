@@ -16,6 +16,28 @@ import {
   STRING_STATIC_METHODS,
   FUNCTIONAL_METHODS,
 } from "./stdlib.js";
+import {
+  TIMER_FUNCTIONS,
+  BASE64_FUNCTIONS,
+  CONSTRUCTOR_MAP,
+  DATE_STATIC_METHODS,
+  DATE_INSTANCE_METHODS,
+  URL_INSTANCE_METHODS,
+  URL_SEARCH_PARAMS_METHODS,
+  STORAGE_METHODS,
+  EVENT_TARGET_METHODS,
+  ABORT_CONTROLLER_METHODS,
+  HEADERS_METHODS,
+  MAP_METHODS,
+  MAP_PROPERTIES,
+  SET_METHODS,
+  SET_PROPERTIES,
+  NAVIGATOR_PROPERTIES,
+  WINDOW_PROPERTIES,
+  WINDOW_LOCATION_PROPERTIES,
+  TYPEOF_CONSTANTS,
+} from "./browser.js";
+import type { IRHandler, IRHandlerStatement } from "../ir/types.js";
 
 export interface TranspileContext {
   stateVarNames: Set<string>;
@@ -27,6 +49,9 @@ export interface TranspileContext {
   source: string;
   filename: string;
   usesStdlib: boolean;
+  requiredPolyfills: Set<string>;
+  extractedCallbacks: IRHandler[];
+  callbackCounter: number;
 }
 
 export interface TranspileResult {
@@ -34,6 +59,7 @@ export interface TranspileResult {
   dependencies: string[];
   preamble?: string[];
   tempVarName?: string;
+  extractedCallbacks?: IRHandler[];
 }
 
 const MAX_CHAIN_DEPTH = 4;
@@ -81,6 +107,8 @@ export function transpileExpression(node: any, ctx: TranspileContext): Transpile
       return transpileObjectExpression(node, ctx);
     case "ArrayExpression":
       return transpileArrayExpression(node, ctx);
+    case "NewExpression":
+      return transpileNewExpression(node, ctx);
     default: {
       ctx.errors.push(
         createError(
@@ -127,10 +155,10 @@ export function canTranspileAsSingleExpression(node: any): boolean {
       }
       // Check callee is transpilable
       if (callee?.type === "MemberExpression") {
-        // Allow Math.floor(x), console.log(x), JSON.parse(x), etc.
+        // Allow Math.floor(x), console.log(x), JSON.parse(x), Date.now(), etc.
         if (callee.object?.type === "Identifier") {
           const objName = callee.object.name;
-          if (["Math", "JSON", "console", "Object", "Array", "String"].includes(objName)) return true;
+          if (["Math", "JSON", "console", "Object", "Array", "String", "Date"].includes(objName)) return true;
         }
         // Allow receiver.method()
         return canTranspileAsSingleExpression(callee.object);
@@ -148,10 +176,17 @@ export function canTranspileAsSingleExpression(node: any): boolean {
       );
 
     case "UnaryExpression":
+      if (node.operator === "typeof") return true;
       return (
         (node.operator === "!" || node.operator === "-" || node.operator === "+") &&
         canTranspileAsSingleExpression(node.argument)
       );
+
+    case "NewExpression": {
+      const ctorName = node.callee?.name;
+      if (ctorName && ctorName in CONSTRUCTOR_MAP) return true;
+      return false;
+    }
 
     case "TemplateLiteral":
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -208,6 +243,53 @@ function transpileMemberExpression(node: any, ctx: TranspileContext): TranspileR
     }
   }
 
+  // navigator.* property access
+  if (obj?.type === "Identifier" && obj.name === "navigator" && prop?.type === "Identifier") {
+    const navProp = NAVIGATOR_PROPERTIES[prop.name];
+    if (navProp) {
+      return { code: navProp.code, dependencies: [] };
+    }
+  }
+
+  // window.location.* access
+  if (
+    obj?.type === "MemberExpression" &&
+    obj.object?.type === "Identifier" &&
+    obj.object.name === "window" &&
+    obj.property?.type === "Identifier" &&
+    obj.property.name === "location" &&
+    prop?.type === "Identifier"
+  ) {
+    const locProp = WINDOW_LOCATION_PROPERTIES[prop.name];
+    if (locProp) {
+      return { code: locProp.code, dependencies: [] };
+    }
+  }
+
+  // window.* property access
+  if (obj?.type === "Identifier" && obj.name === "window" && prop?.type === "Identifier") {
+    const winProp = WINDOW_PROPERTIES[prop.name];
+    if (winProp) {
+      return { code: winProp.code, dependencies: [] };
+    }
+    // window.location is handled by nested access above, fall through for general access
+  }
+
+  // Map/Set .size property
+  if (prop?.type === "Identifier" && prop.name === "size" && !node.computed) {
+    const receiverType = inferBrowserType(obj, ctx);
+    if (receiverType === "Map") {
+      const objResult = transpileExpression(obj, ctx);
+      ctx.requiredPolyfills.add("Collections");
+      return { code: `SvelteRoku_mapSize(${objResult.code})`, dependencies: objResult.dependencies };
+    }
+    if (receiverType === "Set") {
+      const objResult = transpileExpression(obj, ctx);
+      ctx.requiredPolyfills.add("Collections");
+      return { code: `SvelteRoku_setSize(${objResult.code})`, dependencies: objResult.dependencies };
+    }
+  }
+
   // Property access: .length etc.
   if (prop?.type === "Identifier" && !node.computed) {
     const propName = prop.name;
@@ -261,6 +343,12 @@ function transpileCallExpression(node: any, ctx: TranspileContext): TranspileRes
     if (objName === "Object") return transpileObjectStaticCall(methodName, args, ctx, node);
     if (objName === "Array") return transpileArrayStaticCall(methodName, args, ctx, node);
     if (objName === "String") return transpileStringStaticCall(methodName, args, ctx, node);
+    if (objName === "Date") return transpileDateStaticCall(methodName, args, ctx, node);
+
+    // localStorage.method() / sessionStorage.method()
+    if (objName === "localStorage" || objName === "sessionStorage") {
+      return transpileStorageCall(methodName, args, ctx, node);
+    }
   }
 
   // Instance method calls: arr.push(x), str.toLowerCase()
@@ -269,9 +357,29 @@ function transpileCallExpression(node: any, ctx: TranspileContext): TranspileRes
     return transpileInstanceMethodCall(callee.object, methodName, args, ctx, node);
   }
 
-  // Plain function call (not a stdlib method) — pass through
+  // Plain function call — check for browser API globals first
   if (callee?.type === "Identifier") {
-    const transpiled = args.map((a: any) => transpileExpression(a, ctx)); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const funcName = callee.name;
+
+    // Timer functions
+    const timerEntry = TIMER_FUNCTIONS[funcName];
+    if (timerEntry) {
+      return transpileTimerCall(funcName, timerEntry, args, ctx, node);
+    }
+
+    // Base64 functions
+    const base64Entry = BASE64_FUNCTIONS[funcName];
+    if (base64Entry) {
+      if (base64Entry.polyfill) ctx.requiredPolyfills.add(base64Entry.polyfill);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+      const allDeps = transpiled.flatMap((r: TranspileResult) => r.dependencies);
+      const argCodes = transpiled.map((r: TranspileResult) => r.code);
+      return { code: `${base64Entry.brs}(${argCodes.join(", ")})`, dependencies: allDeps };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transpiled = args.map((a: any) => transpileExpression(a, ctx));
     const allDeps = transpiled.flatMap((r: TranspileResult) => r.dependencies);
     const argCodes = transpiled.map((r: TranspileResult) => r.code);
     return { code: `${callee.name}(${argCodes.join(", ")})`, dependencies: allDeps };
@@ -532,6 +640,10 @@ function transpileInstanceMethodCall(obj: any, methodName: string, args: any[], 
       return transpileArrayMethod(obj, methodName, args, arrayEntry, ctx, node);
     }
   }
+
+  // Browser API instance methods
+  const browserResult = transpileBrowserInstanceMethod(obj, methodName, args, ctx, node);
+  if (browserResult) return browserResult;
 
   // Unknown method — error
   ctx.errors.push(
@@ -828,6 +940,10 @@ function transpileBinaryExpression(node: any, ctx: TranspileContext): TranspileR
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function transpileUnaryExpression(node: any, ctx: TranspileContext): TranspileResult {
+  if (node.operator === "typeof") {
+    return transpileTypeof(node.argument, ctx);
+  }
+
   const arg = transpileExpression(node.argument, ctx);
 
   if (node.operator === "!") {
@@ -841,6 +957,25 @@ function transpileUnaryExpression(node: any, ctx: TranspileContext): TranspileRe
   }
 
   return { code: "invalid", dependencies: [] };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileTypeof(argument: any, ctx: TranspileContext): TranspileResult {
+  // Constant-fold known globals
+  if (argument.type === "Identifier") {
+    const name = argument.name;
+    const constant = TYPEOF_CONSTANTS[name];
+    if (constant) {
+      return { code: constant, dependencies: [] };
+    }
+    // State variable — use runtime type()
+    if (ctx.stateVarNames.has(name)) {
+      return { code: `type(m.state.${name})`, dependencies: [name] };
+    }
+  }
+  // Fall through to BRS type() call
+  const arg = transpileExpression(argument, ctx);
+  return { code: `type(${arg.code})`, dependencies: arg.dependencies };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -972,6 +1107,442 @@ function inferType(node: any, ctx: TranspileContext): "array" | "string" | "numb
   }
 
   return "unknown";
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileNewExpression(node: any, ctx: TranspileContext): TranspileResult {
+  const callee = node.callee;
+  if (callee?.type !== "Identifier") {
+    ctx.errors.push(
+      createError(
+        ErrorCode.UNSUPPORTED_EXPRESSION,
+        locationFromOffset(ctx.source, node.start ?? 0, ctx.filename),
+        { expression: ctx.source.slice(node.start, node.end) },
+      ),
+    );
+    return { code: "invalid", dependencies: [] };
+  }
+
+  const ctorName = callee.name;
+  const entry = CONSTRUCTOR_MAP[ctorName];
+  if (!entry) {
+    ctx.errors.push(
+      createError(
+        ErrorCode.UNSUPPORTED_EXPRESSION,
+        locationFromOffset(ctx.source, node.start ?? 0, ctx.filename),
+        { expression: ctx.source.slice(node.start, node.end) },
+      ),
+    );
+    return { code: "invalid", dependencies: [] };
+  }
+
+  if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+
+  const args = node.arguments ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+  const allDeps = transpiled.flatMap((r: TranspileResult) => r.dependencies);
+  const argCodes = transpiled.map((r: TranspileResult) => r.code);
+
+  // Date has arity variants
+  if (ctorName === "Date" && entry.arityVariants) {
+    const brs = entry.arityVariants[args.length] ?? entry.arityVariants[1] ?? entry.brs;
+    return { code: `${brs}(${argCodes.join(", ")})`, dependencies: allDeps };
+  }
+
+  return { code: `${entry.brs}(${argCodes.join(", ")})`, dependencies: allDeps };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileDateStaticCall(methodName: string, args: any[], ctx: TranspileContext, node: any): TranspileResult {
+  const entry = DATE_STATIC_METHODS[methodName];
+  if (!entry) {
+    ctx.errors.push(
+      createError(
+        ErrorCode.UNSUPPORTED_STDLIB_METHOD,
+        locationFromOffset(ctx.source, node.start ?? 0, ctx.filename),
+        { method: `Date.${methodName}` },
+      ),
+    );
+    return { code: "invalid", dependencies: [] };
+  }
+
+  if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+  const allDeps = transpiled.flatMap((r) => r.dependencies);
+  const argCodes = transpiled.map((r) => r.code);
+  return { code: `${entry.brs}(${argCodes.join(", ")})`, dependencies: allDeps };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileStorageCall(methodName: string, args: any[], ctx: TranspileContext, node: any): TranspileResult {
+  const entry = STORAGE_METHODS[methodName];
+  if (!entry) {
+    ctx.errors.push(
+      createError(
+        ErrorCode.UNSUPPORTED_STDLIB_METHOD,
+        locationFromOffset(ctx.source, node.start ?? 0, ctx.filename),
+        { method: `localStorage.${methodName}` },
+      ),
+    );
+    return { code: "invalid", dependencies: [] };
+  }
+
+  if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+  const allDeps = transpiled.flatMap((r) => r.dependencies);
+  const argCodes = transpiled.map((r) => r.code);
+  return { code: `${entry.brs}(${argCodes.join(", ")})`, dependencies: allDeps };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileTimerCall(funcName: string, entry: any, args: any[], ctx: TranspileContext, node: any): TranspileResult {
+  if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+
+  // For setTimeout/setInterval/queueMicrotask, check if first arg is an inline arrow/function
+  if (funcName === "setTimeout" || funcName === "setInterval" || funcName === "queueMicrotask") {
+    const firstArg = args[0];
+    if (firstArg && (firstArg.type === "ArrowFunctionExpression" || firstArg.type === "FunctionExpression")) {
+      return extractTimerCallback(funcName, entry, firstArg, args, ctx, node);
+    }
+
+    // Named function reference — pass name as string
+    if (firstArg?.type === "Identifier") {
+      const restArgs = args.slice(1);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transpiled = restArgs.map((a: any) => transpileExpression(a, ctx));
+      const allDeps = transpiled.flatMap((r: TranspileResult) => r.dependencies);
+      const argCodes = transpiled.map((r: TranspileResult) => r.code);
+      const allArgCodes = [`"${firstArg.name}"`, ...argCodes, "m.top"];
+      return { code: `${entry.brs}(${allArgCodes.join(", ")})`, dependencies: allDeps };
+    }
+  }
+
+  // clearTimeout/clearInterval — pass through handle
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+  const allDeps = transpiled.flatMap((r: TranspileResult) => r.dependencies);
+  const argCodes = transpiled.map((r: TranspileResult) => r.code);
+  const allArgCodes = [...argCodes, "m.top"];
+  return { code: `${entry.brs}(${allArgCodes.join(", ")})`, dependencies: allDeps };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractTimerCallback(funcName: string, entry: any, callback: any, args: any[], ctx: TranspileContext, node: any): TranspileResult {
+  // Check for nested timer inside callback body (unsupported)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const body = callback.body;
+  if (body?.type === "BlockStatement") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const stmt of body.body ?? []) {
+      if (hasNestedTimerCall(stmt)) {
+        ctx.errors.push(
+          createError(
+            ErrorCode.UNSUPPORTED_HANDLER_BODY,
+            locationFromOffset(ctx.source, node.start ?? 0, ctx.filename),
+            { handler: funcName },
+          ),
+        );
+        return { code: "invalid", dependencies: [] };
+      }
+    }
+  }
+
+  const cbName = `__timer_cb_${ctx.callbackCounter++}`;
+  const cbStatements: IRHandlerStatement[] = [];
+  const mutatedVariables: string[] = [];
+
+  if (body?.type === "BlockStatement") {
+    // Block body — transpile each statement
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const stmt of body.body ?? []) {
+      transpileCallbackStatement(stmt, cbStatements, mutatedVariables, ctx);
+    }
+  } else {
+    // Expression body — wrap in a synthetic expression statement
+    transpileCallbackExpression(body, cbStatements, mutatedVariables, ctx);
+  }
+
+  const handler: IRHandler = {
+    name: cbName,
+    statements: cbStatements,
+    mutatedVariables,
+  };
+
+  ctx.extractedCallbacks.push(handler);
+
+  // Build remaining args (delay for setTimeout/setInterval)
+  const restArgs = args.slice(1);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const transpiled = restArgs.map((a: any) => transpileExpression(a, ctx));
+  const allDeps = transpiled.flatMap((r: TranspileResult) => r.dependencies);
+  const argCodes = transpiled.map((r: TranspileResult) => r.code);
+  const allArgCodes = [`"${cbName}"`, ...argCodes, "m.top"];
+
+  return { code: `${entry.brs}(${allArgCodes.join(", ")})`, dependencies: allDeps };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function hasNestedTimerCall(node: any): boolean {
+  if (!node) return false;
+  if (node.type === "ExpressionStatement") {
+    return hasNestedTimerCall(node.expression);
+  }
+  if (node.type === "CallExpression") {
+    if (node.callee?.type === "Identifier") {
+      const name = node.callee.name;
+      if (name === "setTimeout" || name === "setInterval" || name === "queueMicrotask") return true;
+    }
+    // Check args for nested callbacks with timers
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const arg of node.arguments ?? []) {
+      if (arg.type === "ArrowFunctionExpression" || arg.type === "FunctionExpression") {
+        if (arg.body?.type === "BlockStatement") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          for (const stmt of arg.body.body ?? []) {
+            if (hasNestedTimerCall(stmt)) return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileCallbackStatement(stmt: any, statements: IRHandlerStatement[], mutatedVariables: string[], ctx: TranspileContext): void {
+  if (stmt.type !== "ExpressionStatement") return;
+  const expr = stmt.expression;
+
+  if (expr.type === "UpdateExpression") {
+    const varName = expr.argument?.name;
+    if (varName && ctx.stateVarNames.has(varName)) {
+      if (expr.operator === "++") {
+        statements.push({ type: "increment", variable: varName });
+      } else if (expr.operator === "--") {
+        statements.push({ type: "decrement", variable: varName });
+      }
+      if (!mutatedVariables.includes(varName)) mutatedVariables.push(varName);
+      return;
+    }
+  }
+
+  if (expr.type === "AssignmentExpression" && expr.operator === "=") {
+    const varName = expr.left?.name;
+    if (varName && ctx.stateVarNames.has(varName)) {
+      const rhs = expr.right;
+      if (rhs.type === "Literal") {
+        statements.push({ type: "assign-literal", variable: varName, value: String(rhs.value) });
+      } else {
+        const result = transpileExpression(rhs, ctx);
+        statements.push({ type: "assign-expr", variable: varName, brsCode: result.code, preamble: result.preamble });
+      }
+      if (!mutatedVariables.includes(varName)) mutatedVariables.push(varName);
+      return;
+    }
+  }
+
+  // General expression statement
+  const result = transpileExpression(expr, ctx);
+  if (result.code !== "" && result.code !== "invalid") {
+    statements.push({ type: "expr-statement", brsCode: result.code, preamble: result.preamble });
+    for (const dep of result.dependencies) {
+      if (ctx.stateVarNames.has(dep) && !mutatedVariables.includes(dep)) {
+        mutatedVariables.push(dep);
+      }
+    }
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileCallbackExpression(expr: any, statements: IRHandlerStatement[], mutatedVariables: string[], ctx: TranspileContext): void {
+  if (expr.type === "UpdateExpression") {
+    const varName = expr.argument?.name;
+    if (varName && ctx.stateVarNames.has(varName)) {
+      if (expr.operator === "++") {
+        statements.push({ type: "increment", variable: varName });
+      } else if (expr.operator === "--") {
+        statements.push({ type: "decrement", variable: varName });
+      }
+      if (!mutatedVariables.includes(varName)) mutatedVariables.push(varName);
+      return;
+    }
+  }
+
+  if (expr.type === "AssignmentExpression" && expr.operator === "=") {
+    const varName = expr.left?.name;
+    if (varName && ctx.stateVarNames.has(varName)) {
+      const rhs = expr.right;
+      if (rhs.type === "Literal") {
+        statements.push({ type: "assign-literal", variable: varName, value: String(rhs.value) });
+      } else {
+        const result = transpileExpression(rhs, ctx);
+        statements.push({ type: "assign-expr", variable: varName, brsCode: result.code, preamble: result.preamble });
+      }
+      if (!mutatedVariables.includes(varName)) mutatedVariables.push(varName);
+      return;
+    }
+  }
+
+  const result = transpileExpression(expr, ctx);
+  if (result.code !== "" && result.code !== "invalid") {
+    statements.push({ type: "expr-statement", brsCode: result.code, preamble: result.preamble });
+    for (const dep of result.dependencies) {
+      if (ctx.stateVarNames.has(dep) && !mutatedVariables.includes(dep)) {
+        mutatedVariables.push(dep);
+      }
+    }
+  }
+}
+
+/**
+ * Try to transpile a method call on a browser API type (Date, URL, EventTarget, Map, Set, etc.)
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileBrowserInstanceMethod(obj: any, methodName: string, args: any[], ctx: TranspileContext, node: any): TranspileResult | null {
+  const browserType = inferBrowserType(obj, ctx);
+
+  // Date methods
+  if (browserType === "Date") {
+    const entry = DATE_INSTANCE_METHODS[methodName];
+    if (entry) {
+      if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+      const objResult = transpileExpression(obj, ctx);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+      const allDeps = [...objResult.dependencies, ...transpiled.flatMap((r) => r.dependencies)];
+      const argCodes = transpiled.map((r) => r.code);
+      const allArgs = [objResult.code, ...argCodes];
+      return { code: `${entry.brs}(${allArgs.join(", ")})`, dependencies: allDeps };
+    }
+  }
+
+  // URL methods
+  if (browserType === "URL") {
+    const entry = URL_INSTANCE_METHODS[methodName];
+    if (entry) {
+      if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+      const objResult = transpileExpression(obj, ctx);
+      return { code: `${entry.brs}(${objResult.code})`, dependencies: objResult.dependencies };
+    }
+  }
+
+  // URLSearchParams methods
+  if (browserType === "URLSearchParams") {
+    const entry = URL_SEARCH_PARAMS_METHODS[methodName];
+    if (entry) {
+      if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+      const objResult = transpileExpression(obj, ctx);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+      const allDeps = [...objResult.dependencies, ...transpiled.flatMap((r) => r.dependencies)];
+      const argCodes = transpiled.map((r) => r.code);
+      const allArgs = [objResult.code, ...argCodes];
+      return { code: `${entry.brs}(${allArgs.join(", ")})`, dependencies: allDeps };
+    }
+  }
+
+  // EventTarget methods
+  if (browserType === "EventTarget") {
+    const entry = EVENT_TARGET_METHODS[methodName];
+    if (entry) {
+      if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+      const objResult = transpileExpression(obj, ctx);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+      const allDeps = [...objResult.dependencies, ...transpiled.flatMap((r) => r.dependencies)];
+      const argCodes = transpiled.map((r) => r.code);
+      const allArgs = [objResult.code, ...argCodes];
+      return { code: `${entry.brs}(${allArgs.join(", ")})`, dependencies: allDeps };
+    }
+  }
+
+  // AbortController methods
+  if (browserType === "AbortController") {
+    const entry = ABORT_CONTROLLER_METHODS[methodName];
+    if (entry) {
+      if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+      const objResult = transpileExpression(obj, ctx);
+      return { code: `${entry.brs}(${objResult.code})`, dependencies: objResult.dependencies };
+    }
+  }
+
+  // Headers methods
+  if (browserType === "Headers") {
+    const entry = HEADERS_METHODS[methodName];
+    if (entry) {
+      if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+      const objResult = transpileExpression(obj, ctx);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+      const allDeps = [...objResult.dependencies, ...transpiled.flatMap((r) => r.dependencies)];
+      const argCodes = transpiled.map((r) => r.code);
+      const allArgs = [objResult.code, ...argCodes];
+      return { code: `${entry.brs}(${allArgs.join(", ")})`, dependencies: allDeps };
+    }
+  }
+
+  // Map methods
+  if (browserType === "Map") {
+    const entry = MAP_METHODS[methodName];
+    if (entry) {
+      if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+      const objResult = transpileExpression(obj, ctx);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+      const allDeps = [...objResult.dependencies, ...transpiled.flatMap((r) => r.dependencies)];
+      const argCodes = transpiled.map((r) => r.code);
+      const allArgs = [objResult.code, ...argCodes];
+      return { code: `${entry.brs}(${allArgs.join(", ")})`, dependencies: allDeps };
+    }
+  }
+
+  // Set methods
+  if (browserType === "Set") {
+    const entry = SET_METHODS[methodName];
+    if (entry) {
+      if (entry.polyfill) ctx.requiredPolyfills.add(entry.polyfill);
+      const objResult = transpileExpression(obj, ctx);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transpiled = args.map((a: any) => transpileExpression(a, ctx));
+      const allDeps = [...objResult.dependencies, ...transpiled.flatMap((r) => r.dependencies)];
+      const argCodes = transpiled.map((r) => r.code);
+      const allArgs = [objResult.code, ...argCodes];
+      return { code: `${entry.brs}(${allArgs.join(", ")})`, dependencies: allDeps };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Infer browser API type from expression context (NewExpression, Date.now(), etc.)
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function inferBrowserType(node: any, _ctx: TranspileContext): string | null {
+  // new Date() → "Date", new URL() → "URL", etc.
+  if (node.type === "NewExpression" && node.callee?.type === "Identifier") {
+    return node.callee.name;
+  }
+
+  // Identifier referencing a state var — check if it was initialized with a constructor
+  // (We can't easily track this in v0.6, so rely on method name dispatch)
+
+  // .searchParams property → URLSearchParams
+  if (node.type === "MemberExpression" && node.property?.name === "searchParams") {
+    return "URLSearchParams";
+  }
+
+  // .signal property → treat as EventTarget-like for abort signal
+  if (node.type === "MemberExpression" && node.property?.name === "signal") {
+    return null; // signal is an AA with .aborted property, not a method target
+  }
+
+  return null;
 }
 
 function escapeString(s: string): string {

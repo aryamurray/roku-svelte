@@ -183,7 +183,7 @@ describe("compile - v0.2 valid fixtures", () => {
     expect(result.xml).not.toContain("text="); // text is dynamic
 
     // BrightScript
-    expect(result.brightscript).toContain("v0.5");
+    expect(result.brightscript).toContain("v0.6");
     expect(result.brightscript).toContain("m.state = { count: 0, dirty: { count: true } }");
     expect(result.brightscript).toContain("m_update()");
     expect(result.brightscript).toContain("function m_update()");
@@ -371,11 +371,11 @@ describe("compile - v0.2 edge cases", () => {
     expect(result.brightscript).toContain("hidden: false");
   });
 
-  it("v0.1 static-only produces v0.5 output (no state)", () => {
+  it("v0.1 static-only produces v0.6 output (no state)", () => {
     const result = compile("<text>Hello</text>", "Static.svelte");
 
     expect(result.errors).toEqual([]);
-    expect(result.brightscript).toContain("v0.5");
+    expect(result.brightscript).toContain("v0.6");
     expect(result.brightscript).not.toContain("m.state");
     expect(result.brightscript).not.toContain("m_update");
   });
@@ -399,7 +399,7 @@ describe("compile - v0.3 valid list fixtures", () => {
     expect(result.xml).toContain("simple-list_Item0");
 
     // Main BrightScript
-    expect(result.brightscript).toContain("v0.5");
+    expect(result.brightscript).toContain("v0.6");
     expect(result.brightscript).toContain("items:");
     expect(result.brightscript).toContain("ContentNode");
     expect(result.brightscript).toContain("m.state.dirty.items");
@@ -552,7 +552,7 @@ describe("compile - v0.4 valid fetch fixtures", () => {
     expect(result.xml).toContain('uri="pkg:/source/runtime/Fetch.brs"');
 
     // Main BrightScript
-    expect(result.brightscript).toContain("v0.5");
+    expect(result.brightscript).toContain("v0.6");
     expect(result.brightscript).toContain("movies: []");
     expect(result.brightscript).toContain("dirty: { movies: true }");
     expect(result.brightscript).toContain('fetch("/api/movies", {})');
@@ -754,7 +754,7 @@ describe("compile - v0.5 valid stdlib fixtures", () => {
     const result = compile(source, "stdlib-array-methods.svelte");
 
     expect(result.errors).toEqual([]);
-    expect(result.brightscript).toContain("v0.5");
+    expect(result.brightscript).toContain("v0.6");
 
     // push/pop are rename strategy
     expect(result.brightscript).toContain(".Push(");
@@ -1038,5 +1038,308 @@ describe("emitManifest", () => {
     expect(manifest).toContain("minor_version=1");
     expect(manifest).toContain("build_version=42");
     expect(manifest).toContain("ui_resolutions=fhd,hd");
+  });
+});
+
+// === v0.6 integration tests — browser API polyfills ===
+
+describe("compile - v0.6 valid browser fixtures", () => {
+  it("compiles browser-timers with setTimeout/setInterval polyfills", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-timers.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-timers.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("SvelteRoku_setTimeout");
+    expect(result.brightscript).toContain("SvelteRoku_setInterval");
+    expect(result.requiredPolyfills).toContain("Timers");
+    expect(result.xml).toContain("Timers.brs");
+  });
+
+  it("compiles browser-timer-inline with callback extraction", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-timer-inline.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-timer-inline.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain('SvelteRoku_setTimeout("__timer_cb_0"');
+    expect(result.brightscript).toContain("function __timer_cb_0()");
+    expect(result.brightscript).toContain("m.state.count");
+    expect(result.requiredPolyfills).toContain("Timers");
+  });
+
+  it("compiles browser-storage with localStorage polyfill", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-storage.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-storage.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("SvelteRoku_storageSet");
+    expect(result.brightscript).toContain("SvelteRoku_storageGet");
+    expect(result.requiredPolyfills).toContain("Storage");
+    expect(result.xml).toContain("Storage.brs");
+  });
+
+  it("compiles browser-date with Date.now polyfill", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-date.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-date.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("SvelteRoku_dateNowMs");
+    expect(result.requiredPolyfills).toContain("DatePolyfill");
+    expect(result.xml).toContain("DatePolyfill.brs");
+  });
+
+  it("compiles browser-typeof with constant folding", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-typeof.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-typeof.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain('"object"');
+  });
+
+  it("compiles browser-navigator with userAgent inline", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-navigator.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-navigator.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain('CreateObject("roDeviceInfo").GetModel()');
+  });
+
+  it("compiles browser-base64 with btoa polyfill", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-base64.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-base64.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("SvelteRoku_btoa");
+    expect(result.requiredPolyfills).toContain("Base64");
+    expect(result.xml).toContain("Base64.brs");
+  });
+
+  it("compiles browser-url with window.location constants", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-url.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-url.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain('""');
+  });
+
+  it("compiles browser-queuemicrotask with Timers polyfill", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-queuemicrotask.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-queuemicrotask.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("SvelteRoku_queueMicrotask");
+    expect(result.requiredPolyfills).toContain("Timers");
+  });
+
+  it("compiles browser-event-target without errors", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-event-target.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-event-target.svelte");
+
+    expect(result.errors).toEqual([]);
+  });
+
+  it("compiles browser-abort without errors", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-abort.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-abort.svelte");
+
+    expect(result.errors).toEqual([]);
+  });
+
+  it("compiles browser-collections without errors", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "browser-collections.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-collections.svelte");
+
+    expect(result.errors).toEqual([]);
+  });
+});
+
+describe("compile - v0.6 invalid browser fixtures", () => {
+  it("rejects browser-workers with NO_WORKERS", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "browser-workers.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-workers.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "NO_WORKERS")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+
+  it("rejects browser-raf with NO_TIMERS", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "browser-raf.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-raf.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "NO_TIMERS")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+
+  it("rejects browser-document with NO_DOM", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "browser-document.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "browser-document.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "NO_DOM")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+});
+
+describe("compile - v0.6 edge cases", () => {
+  it("compiles typeof window !== 'undefined' ternary with constant folding", () => {
+    const source = '<script>let count = 0; function check() { count = typeof window !== "undefined" ? 1 : 0; }</script><text on:select={check} focusable>{count}</text>';
+    const result = compile(source, "TypeofGuard.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain('"object"');
+    expect(result.brightscript).toContain("SvelteRoku_iif");
+  });
+
+  it("compiles Date.now() in handler", () => {
+    const source = '<script>let ts = 0; function update() { ts = Date.now(); }</script><text on:select={update} focusable>{ts}</text>';
+    const result = compile(source, "DateNow.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("SvelteRoku_dateNowMs");
+    expect(result.requiredPolyfills).toContain("DatePolyfill");
+  });
+
+  it("compiles localStorage in handler", () => {
+    const source = '<script>let name = ""; function save() { localStorage.setItem("name", name); } function load() { name = localStorage.getItem("name"); }</script><text on:select={save} focusable>{name}</text>';
+    const result = compile(source, "Storage.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("SvelteRoku_storageSet");
+    expect(result.brightscript).toContain("SvelteRoku_storageGet");
+    expect(result.requiredPolyfills).toContain("Storage");
+    expect(result.xml).toContain("Storage.brs");
+  });
+
+  it("compiles btoa() in handler", () => {
+    const source = '<script>let encoded = ""; function encode() { encoded = btoa("hello"); }</script><text on:select={encode} focusable>{encoded}</text>';
+    const result = compile(source, "Base64.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain('SvelteRoku_btoa("hello")');
+    expect(result.requiredPolyfills).toContain("Base64");
+  });
+
+  it("compiles navigator.userAgent in handler", () => {
+    const source = '<script>let ua = ""; function detect() { ua = navigator.userAgent; }</script><text on:select={detect} focusable>{ua}</text>';
+    const result = compile(source, "NavUA.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain('CreateObject("roDeviceInfo").GetModel()');
+    expect(result.requiredPolyfills ?? []).not.toContain("Navigator");
+  });
+
+  it("compiles window.innerWidth in handler", () => {
+    const source = '<script>let w = 0; function measure() { w = window.innerWidth; }</script><text on:select={measure} focusable>{w}</text>';
+    const result = compile(source, "WinWidth.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain('CreateObject("roDeviceInfo").GetDisplaySize().w');
+  });
+
+  it("compiles multiple polyfills in one component", () => {
+    const source = '<script>let ts = 0; let encoded = ""; function test() { ts = Date.now(); encoded = btoa("hello"); localStorage.setItem("ts", ts); }</script><text on:select={test} focusable>{ts}</text>';
+    const result = compile(source, "MultiPolyfill.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.requiredPolyfills).toContain("DatePolyfill");
+    expect(result.requiredPolyfills).toContain("Base64");
+    expect(result.requiredPolyfills).toContain("Storage");
+    expect(result.xml).toContain("DatePolyfill.brs");
+    expect(result.xml).toContain("Base64.brs");
+    expect(result.xml).toContain("Storage.brs");
+  });
+
+  it("rejects Worker constructor still blocked", () => {
+    const source = '<script>const w = new Worker("w.js");</script><text>test</text>';
+    const result = compile(source, "WorkerBlocked.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "NO_WORKERS")).toBe(true);
+  });
+});
+
+describe("compile - v0.6 regression", () => {
+  it("v0.1 static fixtures still compile", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "static-text.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "static-text.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.xml).toContain("Label");
+  });
+
+  it("v0.2 counter still compiles", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "counter.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "counter.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("m.state.count + 1");
+  });
+
+  it("v0.4 fetch still compiles", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "fetch-list.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "fetch-list.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.requiresRuntime).toBe(true);
+  });
+
+  it("version string updated", () => {
+    const result = compile('<text>Hello</text>', "Test.svelte");
+    expect(result.brightscript).toContain("v0.6");
   });
 });

@@ -127,4 +127,6 @@ export interface IRComponent {
   itemComponents?: IRItemComponent[];
   requiresRuntime?: boolean;
   requiresStdlib?: boolean;
+  requiredPolyfills?: Set<string>;
+  extractedCallbacks?: IRHandler[];
 }
