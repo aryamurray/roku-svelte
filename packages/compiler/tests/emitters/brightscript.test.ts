@@ -25,7 +25,7 @@ describe("emitBrightScript - v0.1 fallback", () => {
     const brs = emitBrightScript(component);
 
     expect(brs).toContain("' HelloWorld.brs");
-    expect(brs).toContain("v0.4");
+    expect(brs).toContain("v0.5");
     expect(brs).toContain("function init()");
     expect(brs).toContain("end function");
     expect(brs).not.toContain("findNode");
@@ -99,7 +99,7 @@ describe("emitBrightScript - v0.2 state", () => {
 
     const brs = emitBrightScript(component);
 
-    expect(brs).toContain("v0.4");
+    expect(brs).toContain("v0.5");
     expect(brs).toContain("m.state = { count: 0, dirty: { count: true } }");
     expect(brs).toContain('m.label_0 = m.top.findNode("label_0")');
     expect(brs).toContain("m_update()");
@@ -855,7 +855,7 @@ describe("emitItemComponentBrightScript", () => {
     const brs = emitItemComponentBrightScript(itemComp);
 
     expect(brs).toContain("' MovieList_Item0.brs");
-    expect(brs).toContain("v0.4");
+    expect(brs).toContain("v0.5");
     expect(brs).toContain("function init()");
     expect(brs).toContain('m.label_0 = m.top.findNode("label_0")');
     expect(brs).toContain('m.label_1 = m.top.findNode("label_1")');
@@ -1007,7 +1007,7 @@ describe("emitBrightScript - v0.4 fetch", () => {
     expect(brs).toContain("dirty: { count: true }");
   });
 
-  it("emits version comment v0.4", () => {
+  it("emits version comment v0.5", () => {
     const component: IRComponent = {
       name: "Test",
       extends: "Group",
@@ -1016,7 +1016,7 @@ describe("emitBrightScript - v0.4 fetch", () => {
     };
 
     const brs = emitBrightScript(component);
-    expect(brs).toContain("v0.4");
+    expect(brs).toContain("v0.5");
   });
 });
 
@@ -1034,7 +1034,7 @@ describe("emitBrightScript - v0.4 regression", () => {
 
     const brs = emitBrightScript(component);
 
-    expect(brs).toContain("v0.4");
+    expect(brs).toContain("v0.5");
     expect(brs).toContain("function init()");
     expect(brs).not.toContain("m.state");
     expect(brs).not.toContain("m_update");
@@ -1056,7 +1056,7 @@ describe("emitBrightScript - v0.4 regression", () => {
 
     const brs = emitBrightScript(component);
 
-    expect(brs).toContain("v0.4");
+    expect(brs).toContain("v0.5");
     expect(brs).toContain("m.state = { count: 0, dirty: { count: true } }");
     expect(brs).toContain("m_update()");
     expect(brs).not.toContain("ContentNode");

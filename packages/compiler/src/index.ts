@@ -31,6 +31,7 @@ export interface CompileResult {
   errors: CompileError[];
   additionalComponents?: AdditionalComponent[];
   requiresRuntime?: boolean;
+  requiresStdlib?: boolean;
 }
 
 export function compile(
@@ -101,6 +102,7 @@ export function compile(
   }
 
   const requiresRuntime = irResult.component.requiresRuntime || undefined;
+  const requiresStdlib = irResult.component.requiresStdlib || undefined;
 
-  return { xml, brightscript, warnings, errors, additionalComponents, requiresRuntime };
+  return { xml, brightscript, warnings, errors, additionalComponents, requiresRuntime, requiresStdlib };
 }

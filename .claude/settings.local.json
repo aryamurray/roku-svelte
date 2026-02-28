@@ -10,7 +10,10 @@
       "Bash(npx tsc:*)",
       "Bash(npx turbo run build:*)",
       "Bash(bun -e \"\nimport { parse } from ''svelte/compiler'';\nconst source = ''<script>let active = true;</script><rectangle visible={active} />'';\nconst ast = parse\\(source, { modern: true }\\);\nconst el = ast.fragment.nodes.find\\(n => n.type === ''RegularElement''\\);\nconsole.log\\(JSON.stringify\\(el.attributes, null, 2\\)\\);\n\")",
-      "Bash(npx turbo run test)"
+      "Bash(npx turbo run test)",
+      "Bash(bun run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

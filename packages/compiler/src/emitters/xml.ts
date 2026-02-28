@@ -18,6 +18,12 @@ export function emitXML(component: IRComponent): string {
     );
   }
 
+  if (component.requiresStdlib) {
+    lines.push(
+      '  <script type="text/brightscript" uri="pkg:/source/runtime/Stdlib.brs" />',
+    );
+  }
+
   if (component.children.length > 0) {
     lines.push("  <children>");
     for (const child of component.children) {

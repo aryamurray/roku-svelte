@@ -4,4 +4,5 @@ export const RUNTIME_FILES = [
   "FetchTask.brs",
   "FetchTask.xml",
   "MicrotaskQueue.brs",
+  "Stdlib.brs",
 ] as const;

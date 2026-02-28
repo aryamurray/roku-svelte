@@ -61,6 +61,7 @@ export interface IRBinding {
   stateVar: string;
   dependencies: string[];
   textParts?: IRTextPart[];
+  brsExpression?: string;
 }
 
 export type IRHandlerStatement =
@@ -69,7 +70,9 @@ export type IRHandlerStatement =
   | { type: "assign-literal"; variable: string; value: string }
   | { type: "assign-negate"; variable: string }
   | { type: "assign-add"; variable: string; operand: string }
-  | { type: "assign-sub"; variable: string; operand: string };
+  | { type: "assign-sub"; variable: string; operand: string }
+  | { type: "assign-expr"; variable: string; brsCode: string; preamble?: string[] }
+  | { type: "expr-statement"; brsCode: string; preamble?: string[] };
 
 export interface IRHandler {
   name: string;
@@ -123,4 +126,5 @@ export interface IRComponent {
   eachBlocks?: IREachBlock[];
   itemComponents?: IRItemComponent[];
   requiresRuntime?: boolean;
+  requiresStdlib?: boolean;
 }

@@ -1,5 +1,5 @@
 <script>
   let count = 0;
-  function doSomething() { count = someFunction(count); }
+  function doSomething() { for (let i = 0; i < 10; i++) { count++; } }
 </script>
 <text on:select={doSomething} focusable>{count}</text>

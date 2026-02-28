@@ -183,7 +183,7 @@ describe("compile - v0.2 valid fixtures", () => {
     expect(result.xml).not.toContain("text="); // text is dynamic
 
     // BrightScript
-    expect(result.brightscript).toContain("v0.4");
+    expect(result.brightscript).toContain("v0.5");
     expect(result.brightscript).toContain("m.state = { count: 0, dirty: { count: true } }");
     expect(result.brightscript).toContain("m_update()");
     expect(result.brightscript).toContain("function m_update()");
@@ -371,11 +371,11 @@ describe("compile - v0.2 edge cases", () => {
     expect(result.brightscript).toContain("hidden: false");
   });
 
-  it("v0.1 static-only produces v0.4 output (no state)", () => {
+  it("v0.1 static-only produces v0.5 output (no state)", () => {
     const result = compile("<text>Hello</text>", "Static.svelte");
 
     expect(result.errors).toEqual([]);
-    expect(result.brightscript).toContain("v0.4");
+    expect(result.brightscript).toContain("v0.5");
     expect(result.brightscript).not.toContain("m.state");
     expect(result.brightscript).not.toContain("m_update");
   });
@@ -399,7 +399,7 @@ describe("compile - v0.3 valid list fixtures", () => {
     expect(result.xml).toContain("simple-list_Item0");
 
     // Main BrightScript
-    expect(result.brightscript).toContain("v0.4");
+    expect(result.brightscript).toContain("v0.5");
     expect(result.brightscript).toContain("items:");
     expect(result.brightscript).toContain("ContentNode");
     expect(result.brightscript).toContain("m.state.dirty.items");
@@ -552,7 +552,7 @@ describe("compile - v0.4 valid fetch fixtures", () => {
     expect(result.xml).toContain('uri="pkg:/source/runtime/Fetch.brs"');
 
     // Main BrightScript
-    expect(result.brightscript).toContain("v0.4");
+    expect(result.brightscript).toContain("v0.5");
     expect(result.brightscript).toContain("movies: []");
     expect(result.brightscript).toContain("dirty: { movies: true }");
     expect(result.brightscript).toContain('fetch("/api/movies", {})');
@@ -660,17 +660,16 @@ describe("compile - v0.4 invalid fetch fixtures", () => {
     expect(result.xml).toBe("");
   });
 
-  it("rejects fetch-in-template with UNSUPPORTED_EXPRESSION", () => {
+  it("fetch-in-template now compiles (transpiler handles function calls)", () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "fetch-in-template.svelte"),
       "utf-8",
     );
     const result = compile(source, "fetch-in-template.svelte");
 
-    expect(result.errors.length).toBeGreaterThan(0);
-    // fetch in template is caught by no-complex-expressions
-    expect(result.errors.some((e) => e.code === "UNSUPPORTED_EXPRESSION")).toBe(true);
-    expect(result.xml).toBe("");
+    // In v0.5, fetch() in template is transpiled as a regular function call
+    // (the no-fetch validation only checks <script>, not template)
+    expect(result.errors).toEqual([]);
   });
 
   it("fetch-usage in const position still errors (NO_FETCH via validation)", () => {
@@ -741,6 +740,278 @@ describe("compile - v0.4 regression", () => {
 
     expect(result.errors).toEqual([]);
     expect(result.additionalComponents).toBeUndefined();
+  });
+});
+
+// === v0.5 integration tests — stdlib transpilation ===
+
+describe("compile - v0.5 valid stdlib fixtures", () => {
+  it("compiles stdlib-array-methods with push/pop/length", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "stdlib-array-methods.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-array-methods.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("v0.5");
+
+    // push/pop are rename strategy
+    expect(result.brightscript).toContain(".Push(");
+    expect(result.brightscript).toContain(".Pop()");
+
+    // .length in handler → .Count()
+    expect(result.brightscript).toContain(".Count()");
+  });
+
+  it("compiles stdlib-string-methods with toUpperCase/trim", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "stdlib-string-methods.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-string-methods.svelte");
+
+    expect(result.errors).toEqual([]);
+
+    // toUpperCase → UCase
+    expect(result.brightscript).toContain("UCase(");
+    // trim → .Trim()
+    expect(result.brightscript).toContain(".Trim()");
+  });
+
+  it("compiles stdlib-math with Math.floor", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "stdlib-math.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-math.svelte");
+
+    expect(result.errors).toEqual([]);
+
+    // Math.floor → Int()
+    expect(result.brightscript).toContain("Int(");
+  });
+
+  it("compiles stdlib-json with JSON.stringify", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "stdlib-json.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-json.svelte");
+
+    expect(result.errors).toEqual([]);
+
+    // JSON.stringify → FormatJSON
+    expect(result.brightscript).toContain("FormatJSON(");
+  });
+
+  it("compiles stdlib-console with console.log", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "stdlib-console.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-console.svelte");
+
+    expect(result.errors).toEqual([]);
+
+    // console.log → print
+    expect(result.brightscript).toContain("print ");
+  });
+
+  it("compiles stdlib-filter-map with .filter() inline expansion", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "stdlib-filter-map.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-filter-map.svelte");
+
+    expect(result.errors).toEqual([]);
+
+    // filter expansion: for each loop with conditional push
+    expect(result.brightscript).toContain("__tmp_");
+    expect(result.brightscript).toContain("for each");
+    expect(result.brightscript).toContain("Push(");
+    expect(result.brightscript).toContain("end for");
+  });
+
+  it("compiles stdlib-template-expr with expressions in templates", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "stdlib-template-expr.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-template-expr.svelte");
+
+    expect(result.errors).toEqual([]);
+
+    // Math.floor(count) in template → Int(m.state.count) in binding
+    expect(result.brightscript).toContain("Int(m.state.count)");
+    // name.toUpperCase() in template → UCase(m.state.name)
+    expect(result.brightscript).toContain("UCase(m.state.name)");
+  });
+});
+
+describe("compile - v0.5 invalid stdlib fixtures", () => {
+  it("rejects stdlib-unsupported-method with UNSUPPORTED_STDLIB_METHOD", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "stdlib-unsupported-method.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-unsupported-method.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "UNSUPPORTED_STDLIB_METHOD")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+
+  it("rejects stdlib-functional-in-template with FUNCTIONAL_IN_TEMPLATE", () => {
+    const source = fs.readFileSync(
+      path.join(INVALID_DIR, "stdlib-functional-in-template.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "stdlib-functional-in-template.svelte");
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.code === "FUNCTIONAL_IN_TEMPLATE")).toBe(true);
+    expect(result.xml).toBe("");
+  });
+});
+
+describe("compile - v0.5 edge cases", () => {
+  it("compiles binary expression in template: {count + 1}", () => {
+    const source = '<script>let count = 0;</script><text>{count + 1}</text>';
+    const result = compile(source, "BinaryExpr.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("(m.state.count + 1)");
+  });
+
+  it("compiles string method in template: {name.toUpperCase()}", () => {
+    const source = '<script>let name = "hello";</script><text>{name.toUpperCase()}</text>';
+    const result = compile(source, "StringMethod.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("UCase(m.state.name)");
+  });
+
+  it("compiles Math in template: {Math.floor(score)}", () => {
+    const source = '<script>let score = 3.14;</script><text>{Math.floor(score)}</text>';
+    const result = compile(source, "MathTemplate.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("Int(m.state.score)");
+  });
+
+  it("compiles .length in template for array state", () => {
+    const source = '<script>let items = [{ n: "a" }];</script><text>{items.length}</text>';
+    const result = compile(source, "ArrayLength.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("m.state.items.Count()");
+  });
+
+  it("compiles .length in template for string state", () => {
+    const source = '<script>let name = "hello";</script><text>{name.length}</text>';
+    const result = compile(source, "StringLength.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("Len(m.state.name)");
+  });
+
+  it("compiles multiple stdlib calls in one handler", () => {
+    const source = `<script>
+  let items = [{ n: "a" }];
+  let count = 0;
+  function process() {
+    items.push({ n: "b" });
+    count = items.length;
+    console.log(count);
+  }
+</script>
+<text on:select={process} focusable>{count}</text>`;
+    const result = compile(source, "MultiStdlib.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain(".Push(");
+    expect(result.brightscript).toContain(".Count()");
+    expect(result.brightscript).toContain("print ");
+  });
+
+  it("sets requiresStdlib when runtime helpers are used", () => {
+    const source = '<script>let items = [{ n: "a" }]; let idx = 0; function test() { idx = items.indexOf("a"); }</script><text on:select={test} focusable>{idx}</text>';
+    const result = compile(source, "StdlibFlag.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.requiresStdlib).toBe(true);
+    expect(result.xml).toContain("Stdlib.brs");
+  });
+
+  it("does not set requiresStdlib for rename/wrap-only methods", () => {
+    const source = '<script>let name = "hello"; function test() { name = name.toUpperCase(); }</script><text on:select={test} focusable>{name}</text>';
+    const result = compile(source, "WrapOnly.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.requiresStdlib).toBeUndefined();
+    expect(result.xml).not.toContain("Stdlib.brs");
+  });
+
+  it("compiles console.debug as no-op (strips it)", () => {
+    const source = '<script>let count = 0; function test() { count++; console.debug("test"); }</script><text on:select={test} focusable>{count}</text>';
+    const result = compile(source, "DebugStrip.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).not.toContain("debug");
+    // Should still have the increment
+    expect(result.brightscript).toContain("m.state.count + 1");
+  });
+});
+
+describe("compile - v0.5 regression", () => {
+  it("v0.1 static fixtures still compile correctly", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "static-text.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "static-text.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.xml).toContain("Label");
+    expect(result.xml).toContain('text="Hello Roku"');
+  });
+
+  it("v0.2 counter fixture still compiles correctly", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "counter.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "counter.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.brightscript).toContain("m.state.count + 1");
+    expect(result.brightscript).toContain("function increment()");
+  });
+
+  it("v0.3 list fixtures still compile correctly", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "simple-list.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "simple-list.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.xml).toContain("MarkupList");
+    expect(result.additionalComponents).toHaveLength(1);
+  });
+
+  it("v0.4 fetch fixtures still compile correctly", () => {
+    const source = fs.readFileSync(
+      path.join(VALID_DIR, "fetch-list.svelte"),
+      "utf-8",
+    );
+    const result = compile(source, "fetch-list.svelte");
+
+    expect(result.errors).toEqual([]);
+    expect(result.requiresRuntime).toBe(true);
+    expect(result.brightscript).toContain("fetch(");
   });
 });
 

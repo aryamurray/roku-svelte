@@ -150,6 +150,18 @@ export const ERROR_MESSAGES: Record<string, ErrorDefinition> = {
     docsUrl: `${DOCS_BASE}/each-outer-state-ref`,
     fatal: true,
   },
+  [ErrorCode.UNSUPPORTED_STDLIB_METHOD]: {
+    message: 'Unsupported JavaScript method "{method}" has no BrightScript equivalent',
+    hint: "This JavaScript standard library method cannot be transpiled to BrightScript. See docs for the list of supported methods.",
+    docsUrl: `${DOCS_BASE}/unsupported-stdlib-method`,
+    fatal: true,
+  },
+  [ErrorCode.FUNCTIONAL_IN_TEMPLATE]: {
+    message: 'Functional array method "{method}" cannot be used in template expressions',
+    hint: "Methods like .map(), .filter(), .reduce() require multi-line expansion and can only be used in event handlers, not in {expression} template bindings.",
+    docsUrl: `${DOCS_BASE}/functional-in-template`,
+    fatal: true,
+  },
 };
 
 export const WARNING_MESSAGES: Record<string, WarningDefinition> = {

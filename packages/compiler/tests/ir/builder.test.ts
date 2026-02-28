@@ -307,7 +307,7 @@ describe("buildIR - handler extraction", () => {
 
   it("errors on unsupported handler body", () => {
     const source =
-      "<script>let count = 0; function bad() { count = someFunction(count); }</script><text>Hello</text>";
+      "<script>let count = 0; function bad() { for (let i = 0; i < 10; i++) { count++; } }</script><text>Hello</text>";
     const ast = parseSource(source);
     const { errors } = buildIR(ast, source, "Test.svelte");
 
