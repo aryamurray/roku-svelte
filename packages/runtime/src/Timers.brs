@@ -11,7 +11,8 @@ function SvelteRoku_setTimeout(callback as String, delayMs as Dynamic, component
   t = CreateObject("roSGNode", "Timer")
   t.duration = delayMs / 1000.0
   t.repeat = false
-  t.id = "__timer_" + Str(m.__timerIdCounter).Trim()
+  tmp = Str(m.__timerIdCounter)
+  t.id = "__timer_" + tmp.Trim()
   m.__timerIdCounter = m.__timerIdCounter + 1
   m.__timerContainer.appendChild(t)
   t.observeField("fire", callback)
@@ -29,7 +30,8 @@ function SvelteRoku_setInterval(callback as String, delayMs as Dynamic, componen
   t = CreateObject("roSGNode", "Timer")
   t.duration = delayMs / 1000.0
   t.repeat = true
-  t.id = "__timer_" + Str(m.__timerIdCounter).Trim()
+  tmp = Str(m.__timerIdCounter)
+  t.id = "__timer_" + tmp.Trim()
   m.__timerIdCounter = m.__timerIdCounter + 1
   m.__timerContainer.appendChild(t)
   t.observeField("fire", callback)
@@ -37,20 +39,20 @@ function SvelteRoku_setInterval(callback as String, delayMs as Dynamic, componen
   return t.id
 end function
 
-function SvelteRoku_clearTimeout(handle as String, component as Object)
-  if m.__timerContainer = invalid then return invalid
+sub SvelteRoku_clearTimeout(handle as String, component as Object)
+  if m.__timerContainer = invalid then return
   t = m.__timerContainer.findNode(handle)
   if t <> invalid then
     t.control = "stop"
     m.__timerContainer.removeChild(t)
   end if
-end function
+end sub
 
-function SvelteRoku_clearInterval(handle as String, component as Object)
+sub SvelteRoku_clearInterval(handle as String, component as Object)
   SvelteRoku_clearTimeout(handle, component)
-end function
+end sub
 
-function SvelteRoku_queueMicrotask(callback as String, component as Object)
+sub SvelteRoku_queueMicrotask(callback as String, component as Object)
   ' Use a 0-duration timer as microtask approximation
   SvelteRoku_setTimeout(callback, 0, component)
-end function
+end sub

@@ -5,14 +5,14 @@ function SvelteRoku_eventTargetCreate() as Object
   return { __type: "EventTarget", __listeners: {} }
 end function
 
-function SvelteRoku_etAddListener(et as Object, eventType as String, callback as String)
+sub SvelteRoku_etAddListener(et as Object, eventType as String, callback as String)
   if not et.__listeners.DoesExist(eventType) then
     et.__listeners[eventType] = []
   end if
   et.__listeners[eventType].Push(callback)
-end function
+end sub
 
-function SvelteRoku_etRemoveListener(et as Object, eventType as String, callback as String)
+sub SvelteRoku_etRemoveListener(et as Object, eventType as String, callback as String)
   if not et.__listeners.DoesExist(eventType) then return
   listeners = et.__listeners[eventType]
   for i = listeners.Count() - 1 to 0 step -1
@@ -21,9 +21,9 @@ function SvelteRoku_etRemoveListener(et as Object, eventType as String, callback
       exit for
     end if
   end for
-end function
+end sub
 
-function SvelteRoku_etDispatch(et as Object, event as Object)
+sub SvelteRoku_etDispatch(et as Object, event as Object)
   eventType = event.type
   if eventType = invalid then eventType = event
   if not et.__listeners.DoesExist(eventType) then return
@@ -31,12 +31,12 @@ function SvelteRoku_etDispatch(et as Object, event as Object)
     ' Callbacks are stored as function name strings
     ' In practice these would be called via observeField
   end for
-end function
+end sub
 
 function SvelteRoku_abortControllerCreate() as Object
   return { __type: "AbortController", signal: { aborted: false, __type: "AbortSignal", __listeners: {} } }
 end function
 
-function SvelteRoku_abortControllerAbort(ac as Object)
+sub SvelteRoku_abortControllerAbort(ac as Object)
   ac.signal.aborted = true
-end function
+end sub

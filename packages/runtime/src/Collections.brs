@@ -6,72 +6,72 @@ function SvelteRoku_mapCreate() as Object
   return { __type: "Map", __keys: [], __values: [] }
 end function
 
-function SvelteRoku_mapGet(m as Object, key as Dynamic) as Dynamic
-  for i = 0 to m.__keys.Count() - 1
-    if m.__keys[i] = key then return m.__values[i]
+function SvelteRoku_mapGet(mapObj as Object, key as Dynamic) as Dynamic
+  for i = 0 to mapObj.__keys.Count() - 1
+    if mapObj.__keys[i] = key then return mapObj.__values[i]
   end for
   return invalid
 end function
 
-function SvelteRoku_mapSet(m as Object, key as Dynamic, val as Dynamic) as Object
-  for i = 0 to m.__keys.Count() - 1
-    if m.__keys[i] = key then
-      m.__values[i] = val
-      return m
+function SvelteRoku_mapSet(mapObj as Object, key as Dynamic, val as Dynamic) as Object
+  for i = 0 to mapObj.__keys.Count() - 1
+    if mapObj.__keys[i] = key then
+      mapObj.__values[i] = val
+      return mapObj
     end if
   end for
-  m.__keys.Push(key)
-  m.__values.Push(val)
-  return m
+  mapObj.__keys.Push(key)
+  mapObj.__values.Push(val)
+  return mapObj
 end function
 
-function SvelteRoku_mapHas(m as Object, key as Dynamic) as Boolean
-  for each k in m.__keys
+function SvelteRoku_mapHas(mapObj as Object, key as Dynamic) as Boolean
+  for each k in mapObj.__keys
     if k = key then return true
   end for
   return false
 end function
 
-function SvelteRoku_mapDelete(m as Object, key as Dynamic) as Boolean
-  for i = 0 to m.__keys.Count() - 1
-    if m.__keys[i] = key then
-      m.__keys.Delete(i)
-      m.__values.Delete(i)
+function SvelteRoku_mapDelete(mapObj as Object, key as Dynamic) as Boolean
+  for i = 0 to mapObj.__keys.Count() - 1
+    if mapObj.__keys[i] = key then
+      mapObj.__keys.Delete(i)
+      mapObj.__values.Delete(i)
       return true
     end if
   end for
   return false
 end function
 
-function SvelteRoku_mapClear(m as Object)
-  m.__keys = []
-  m.__values = []
+sub SvelteRoku_mapClear(mapObj as Object)
+  mapObj.__keys = []
+  mapObj.__values = []
+end sub
+
+function SvelteRoku_mapSize(mapObj as Object) as Integer
+  return mapObj.__keys.Count()
 end function
 
-function SvelteRoku_mapSize(m as Object) as Integer
-  return m.__keys.Count()
-end function
-
-function SvelteRoku_mapKeys(m as Object) as Object
+function SvelteRoku_mapKeys(mapObj as Object) as Object
   result = []
-  for each k in m.__keys
+  for each k in mapObj.__keys
     result.Push(k)
   end for
   return result
 end function
 
-function SvelteRoku_mapValues(m as Object) as Object
+function SvelteRoku_mapValues(mapObj as Object) as Object
   result = []
-  for each v in m.__values
+  for each v in mapObj.__values
     result.Push(v)
   end for
   return result
 end function
 
-function SvelteRoku_mapEntries(m as Object) as Object
+function SvelteRoku_mapEntries(mapObj as Object) as Object
   result = []
-  for i = 0 to m.__keys.Count() - 1
-    result.Push([m.__keys[i], m.__values[i]])
+  for i = 0 to mapObj.__keys.Count() - 1
+    result.Push([mapObj.__keys[i], mapObj.__values[i]])
   end for
   return result
 end function
@@ -80,50 +80,50 @@ function SvelteRoku_setCreate() as Object
   return { __type: "Set", __values: [] }
 end function
 
-function SvelteRoku_setAdd(s as Object, val as Dynamic) as Object
-  for each v in s.__values
-    if v = val then return s
+function SvelteRoku_setAdd(setObj as Object, val as Dynamic) as Object
+  for each v in setObj.__values
+    if v = val then return setObj
   end for
-  s.__values.Push(val)
-  return s
+  setObj.__values.Push(val)
+  return setObj
 end function
 
-function SvelteRoku_setHas(s as Object, val as Dynamic) as Boolean
-  for each v in s.__values
+function SvelteRoku_setHas(setObj as Object, val as Dynamic) as Boolean
+  for each v in setObj.__values
     if v = val then return true
   end for
   return false
 end function
 
-function SvelteRoku_setDelete(s as Object, val as Dynamic) as Boolean
-  for i = 0 to s.__values.Count() - 1
-    if s.__values[i] = val then
-      s.__values.Delete(i)
+function SvelteRoku_setDelete(setObj as Object, val as Dynamic) as Boolean
+  for i = 0 to setObj.__values.Count() - 1
+    if setObj.__values[i] = val then
+      setObj.__values.Delete(i)
       return true
     end if
   end for
   return false
 end function
 
-function SvelteRoku_setClear(s as Object)
-  s.__values = []
+sub SvelteRoku_setClear(setObj as Object)
+  setObj.__values = []
+end sub
+
+function SvelteRoku_setSize(setObj as Object) as Integer
+  return setObj.__values.Count()
 end function
 
-function SvelteRoku_setSize(s as Object) as Integer
-  return s.__values.Count()
-end function
-
-function SvelteRoku_setValues(s as Object) as Object
+function SvelteRoku_setValues(setObj as Object) as Object
   result = []
-  for each v in s.__values
+  for each v in setObj.__values
     result.Push(v)
   end for
   return result
 end function
 
-function SvelteRoku_setEntries(s as Object) as Object
+function SvelteRoku_setEntries(setObj as Object) as Object
   result = []
-  for each v in s.__values
+  for each v in setObj.__values
     result.Push([v, v])
   end for
   return result

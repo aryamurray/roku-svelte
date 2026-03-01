@@ -15,17 +15,17 @@ function SvelteRoku_headersGet(h as Object, name as String) as Dynamic
   return invalid
 end function
 
-function SvelteRoku_headersSet(h as Object, name as String, val as String)
+sub SvelteRoku_headersSet(h as Object, name as String, val as String)
   h.__entries[LCase(name)] = val
-end function
+end sub
 
 function SvelteRoku_headersHas(h as Object, name as String) as Boolean
   return h.__entries.DoesExist(LCase(name))
 end function
 
-function SvelteRoku_headersDelete(h as Object, name as String)
+sub SvelteRoku_headersDelete(h as Object, name as String)
   h.__entries.Delete(LCase(name))
-end function
+end sub
 
 function SvelteRoku_requestCreate(url as String, opts = {} as Object) as Object
   method = "GET"

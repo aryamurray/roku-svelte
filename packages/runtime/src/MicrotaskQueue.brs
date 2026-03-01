@@ -8,16 +8,16 @@ function MicrotaskQueue_create() as Object
   }
 end function
 
-function MicrotaskQueue_enqueue(queue as Object, callbackName as String, data as Dynamic) as Void
+sub MicrotaskQueue_enqueue(queue as Object, callbackName as String, data as Dynamic)
   queue.tasks.push({
     callbackName: callbackName,
     data: data
   })
-end function
+end sub
 
-function MicrotaskQueue_flush(queue as Object) as Void
+sub MicrotaskQueue_flush(queue as Object)
   while queue.tasks.count() > 0
     task = queue.tasks.shift()
     m[task.callbackName](task.data)
   end while
-end function
+end sub

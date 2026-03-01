@@ -2,11 +2,11 @@
 ' @svelte-roku/runtime v0.4
 ' Task thread implementation for HTTP requests
 
-function init()
+sub init()
   m.top.functionName = "fetchData"
-end function
+end sub
 
-function fetchData()
+sub fetchData()
   request = CreateObject("roUrlTransfer")
   request.setCertificatesFile("common:/certs/ca-bundle.crt")
   request.initClientCertificates()
@@ -16,4 +16,4 @@ function fetchData()
   else
     m.top.response = request.getToString()
   end if
-end function
+end sub

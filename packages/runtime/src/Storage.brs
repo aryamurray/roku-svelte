@@ -9,23 +9,23 @@ function SvelteRoku_storageGet(key as String) as Dynamic
   return invalid
 end function
 
-function SvelteRoku_storageSet(key as String, val as String)
+sub SvelteRoku_storageSet(key as String, val as String)
   sec = CreateObject("roRegistrySection", "SvelteRokuStorage")
   sec.Write(key, val)
   sec.Flush()
-end function
+end sub
 
-function SvelteRoku_storageRemove(key as String)
+sub SvelteRoku_storageRemove(key as String)
   sec = CreateObject("roRegistrySection", "SvelteRokuStorage")
   sec.Delete(key)
   sec.Flush()
-end function
+end sub
 
-function SvelteRoku_storageClear()
+sub SvelteRoku_storageClear()
   sec = CreateObject("roRegistrySection", "SvelteRokuStorage")
   keys = sec.GetKeyList()
   for each key in keys
     sec.Delete(key)
   end for
   sec.Flush()
-end function
+end sub

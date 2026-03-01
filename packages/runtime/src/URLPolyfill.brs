@@ -56,11 +56,11 @@ function SvelteRoku_urlToString(u as Object) as String
   return u.href
 end function
 
-function SvelteRoku_urlSearchParamsCreate(str as String) as Object
+function SvelteRoku_urlSearchParamsCreate(s as String) as Object
   sp = { __type: "URLSearchParams", __entries: {} }
-  if str = "" then return sp
-  if Left(str, 1) = "?" then str = Mid(str, 2)
-  pairs = str.Split("&")
+  if s = "" then return sp
+  if Left(s, 1) = "?" then s = Mid(s, 2)
+  pairs = s.Split("&")
   for each pair in pairs
     eqIdx = Instr(1, pair, "=")
     if eqIdx > 0 then
@@ -79,17 +79,17 @@ function SvelteRoku_urlSearchParamsGet(sp as Object, key as String) as Dynamic
   return invalid
 end function
 
-function SvelteRoku_urlSearchParamsSet(sp as Object, key as String, val as String)
+sub SvelteRoku_urlSearchParamsSet(sp as Object, key as String, val as String)
   sp.__entries[key] = val
-end function
+end sub
 
 function SvelteRoku_urlSearchParamsHas(sp as Object, key as String) as Boolean
   return sp.__entries.DoesExist(key)
 end function
 
-function SvelteRoku_urlSearchParamsDelete(sp as Object, key as String)
+sub SvelteRoku_urlSearchParamsDelete(sp as Object, key as String)
   sp.__entries.Delete(key)
-end function
+end sub
 
 function SvelteRoku_urlSearchParamsToString(sp as Object) as String
   result = ""

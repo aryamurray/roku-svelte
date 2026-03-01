@@ -3,7 +3,7 @@ import { consola } from "consola";
 import fg from "fast-glob";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { createRequire } from "module";
-import { join, basename, dirname } from "pathe";
+import { join, basename, dirname, normalize } from "pathe";
 import { compile, emitManifest } from "@svelte-roku/compiler";
 import { RUNTIME_FILES } from "@svelte-roku/runtime";
 import { svelteRokuPreprocess } from "@svelte-roku/preprocessor";
@@ -49,7 +49,7 @@ export const buildCommand = defineCommand({
       const filename = basename(file, ".svelte");
 
       const preprocessed = preprocessor.markup({ content: source, filename: file });
-      const isEntry = fullPath === config.entry;
+      const isEntry = normalize(fullPath) === normalize(config.entry);
       const result = compile(preprocessed.code, filename, { isEntry });
 
       if (result.errors.length > 0) {
@@ -85,6 +85,15 @@ export const buildCommand = defineCommand({
     });
     mkdirSync(config.outDir, { recursive: true });
     writeFileSync(join(config.outDir, "manifest"), manifest);
+
+    // Write main.brs entry point
+    const entryName = basename(config.entry, ".svelte");
+    const sourceDir = join(config.outDir, "source");
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, "main.brs"),
+      `sub main()\n  screen = CreateObject("roSGScreen")\n  m.port = CreateObject("roMessagePort")\n  screen.setMessagePort(m.port)\n  scene = screen.CreateScene("${entryName}")\n  screen.show()\n\n  while true\n    msg = wait(0, m.port)\n    msgType = type(msg)\n    if msgType = "roSGScreenEvent"\n      if msg.isScreenClosed() then return\n    end if\n  end while\nend sub\n`,
+    );
 
     // Copy runtime files
     copyRuntimeFiles(config.outDir);
