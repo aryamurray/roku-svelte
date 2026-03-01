@@ -10,6 +10,12 @@ export type SGNodeType =
   | "BusySpinner"
   | "Group";
 
+export interface IRPropVariable {
+  name: string;
+  type: "string" | "number" | "boolean";
+  defaultValue: string;
+}
+
 export interface IRProperty {
   name: string;
   value: string;
@@ -18,12 +24,13 @@ export interface IRProperty {
 
 export interface IRNode {
   id: string;
-  type: SGNodeType;
+  type: string;
   properties: IRProperty[];
   children: IRNode[];
   textContent?: string;
   focusable?: boolean;
   flexStyles?: Record<string, string>;
+  isComponent?: boolean;
 }
 
 export interface IRArrayItemField {
@@ -42,13 +49,25 @@ export interface IRFetchCall {
   optionsSource?: string;
 }
 
+export interface IRObjectField {
+  name: string;
+  value: string;
+  type: "string" | "number" | "boolean";
+}
+
 export interface IRStateVariable {
   name: string;
   initialValue: string;
-  type: "number" | "string" | "boolean" | "array";
+  type: "number" | "string" | "boolean" | "array" | "object";
   arrayItemFields?: IRArrayItemField[];
   arrayItems?: IRArrayItem[];
+  objectFields?: IRObjectField[];
   fetchCall?: IRFetchCall;
+  derivedFrom?: {
+    brsExpression: string;
+    dependencies: string[];
+    preamble?: string[];
+  };
 }
 
 export interface IRTextPart {
@@ -73,7 +92,13 @@ export type IRHandlerStatement =
   | { type: "assign-add"; variable: string; operand: string }
   | { type: "assign-sub"; variable: string; operand: string }
   | { type: "assign-expr"; variable: string; brsCode: string; preamble?: string[] }
-  | { type: "expr-statement"; brsCode: string; preamble?: string[] };
+  | { type: "expr-statement"; brsCode: string; preamble?: string[] }
+  | { type: "if"; testBrs: string; testPreamble?: string[]; consequent: IRHandlerStatement[]; alternate?: IRHandlerStatement[] }
+  | { type: "for-each"; variable: string; iterableBrs: string; iterablePreamble?: string[]; body: IRHandlerStatement[] }
+  | { type: "while"; testBrs: string; testPreamble?: string[]; body: IRHandlerStatement[] }
+  | { type: "return"; valueBrs?: string; valuePreamble?: string[] }
+  | { type: "var-decl"; variable: string; valueBrs: string; valuePreamble?: string[] }
+  | { type: "try-catch"; tryBody: IRHandlerStatement[]; catchVar: string; catchBody: IRHandlerStatement[] };
 
 export interface IRHandler {
   name: string;
@@ -92,6 +117,7 @@ export interface IREachBlock {
   itemAlias: string;
   itemComponentName: string;
   listNodeId: string;
+  indexName?: string;
 }
 
 export interface IRItemTextPart {
@@ -123,6 +149,27 @@ export interface AssetReference {
   rasterizeHeight?: number;
 }
 
+export interface IRTwoWayBinding {
+  nodeId: string;
+  property: string;
+  stateVar: string;
+}
+
+export interface IRContinuation {
+  name: string;
+  awaitType: "fetch" | "generic";
+  awaitTarget: string;
+  fetchUrl?: string;
+  resultVar?: string;
+  statements: IRHandlerStatement[];
+  mutatedVariables: string[];
+}
+
+export interface IRAsyncHandler extends IRHandler {
+  isAsync: true;
+  continuations: IRContinuation[];
+}
+
 export interface IRComponent {
   name: string;
   extends: string;
@@ -140,4 +187,11 @@ export interface IRComponent {
   requiresStdlib?: boolean;
   requiredPolyfills?: Set<string>;
   extractedCallbacks?: IRHandler[];
+  props?: IRPropVariable[];
+  componentImports?: Array<{ name: string; path: string }>;
+  onMountHandler?: IRHandler;
+  onDestroyHandler?: IRHandler;
+  twoWayBindings?: IRTwoWayBinding[];
+  asyncHandlers?: IRAsyncHandler[];
+  usesAsync?: boolean;
 }

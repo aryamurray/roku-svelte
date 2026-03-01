@@ -39,6 +39,7 @@ export interface CompileResult {
   requiresRuntime?: boolean;
   requiresStdlib?: boolean;
   requiredPolyfills?: string[];
+  componentImports?: Array<{ name: string; path: string }>;
 }
 
 export async function compile(
@@ -131,5 +132,7 @@ export async function compile(
     ? [...irResult.component.requiredPolyfills]
     : undefined;
 
-  return { xml, brightscript, warnings, errors, assets, additionalComponents, requiresRuntime, requiresStdlib, requiredPolyfills };
+  const componentImports = irResult.component.componentImports;
+
+  return { xml, brightscript, warnings, errors, assets, additionalComponents, requiresRuntime, requiresStdlib, requiredPolyfills, componentImports };
 }

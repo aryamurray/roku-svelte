@@ -8,6 +8,7 @@ import type {
   IRStateVariable,
   IRItemComponent,
   IREachBlock,
+  IRAsyncHandler,
 } from "../ir/types.js";
 
 const FIELD_TYPES: Record<string, "string" | "number" | "boolean" | "color" | "array"> = {
@@ -133,6 +134,28 @@ function buildV2(component: IRComponent, lines: string[]): void {
     emitExtractedCallbacks(component, lines);
   }
 
+  if (component.props && component.props.length > 0) {
+    emitPropObserver(component, lines);
+  }
+
+  // onDestroy lifecycle
+  if (component.onDestroyHandler) {
+    lines.push("");
+    lines.push("sub onDestroy_handler()");
+    emitStatements(component.onDestroyHandler.statements, lines, 2);
+    lines.push("end sub");
+  }
+
+  // Two-way binding observers
+  if (component.twoWayBindings && component.twoWayBindings.length > 0) {
+    emitTwoWayObservers(component, lines);
+  }
+
+  // Async handlers
+  if (component.asyncHandlers && component.asyncHandlers.length > 0) {
+    emitAsyncHandlers(component, lines);
+  }
+
   emitFetchCallbacks(component, lines);
 
   while (lines[lines.length - 1] === "") {
@@ -192,6 +215,12 @@ function emitInit(component: IRComponent, lines: string[]): void {
       refNodeIds.add(eb.listNodeId);
     }
   }
+  // Also add two-way binding node refs
+  if (component.twoWayBindings) {
+    for (const twb of component.twoWayBindings) {
+      refNodeIds.add(twb.nodeId);
+    }
+  }
 
   if (refNodeIds.size > 0) {
     for (const nodeId of refNodeIds) {
@@ -206,6 +235,13 @@ function emitInit(component: IRComponent, lines: string[]): void {
     });
     const dirtyEntries = component.state.map((sv) => `${sv.name}: true`);
     lines.push(`  m.state = { ${stateEntries.join(", ")}, dirty: { ${dirtyEntries.join(", ")} } }`);
+  }
+
+  // Read initial prop values from m.top
+  if (component.props && component.props.length > 0) {
+    for (const prop of component.props) {
+      lines.push(`  m.state.${prop.name} = m.top.${prop.name}`);
+    }
   }
 
   if (component.autofocusNodeId) {
@@ -231,6 +267,25 @@ function emitInit(component: IRComponent, lines: string[]): void {
     lines.push("  m_update()");
   }
 
+  // Two-way binding observers
+  if (component.twoWayBindings && component.twoWayBindings.length > 0) {
+    for (const twb of component.twoWayBindings) {
+      const varName = sanitizeVarName(twb.nodeId);
+      lines.push(`  m.${varName}.observeField("text", "on_${varName}_changed")`);
+    }
+  }
+
+  // onMount lifecycle — emit body inline at end of init()
+  if (component.onMountHandler) {
+    emitStatements(component.onMountHandler.statements, lines, 2);
+    for (const v of component.onMountHandler.mutatedVariables) {
+      lines.push(`  m.state.dirty.${v} = true`);
+    }
+    if (component.onMountHandler.mutatedVariables.length > 0) {
+      lines.push("  m_update()");
+    }
+  }
+
   lines.push("end function");
 }
 
@@ -242,6 +297,25 @@ function emitUpdate(component: IRComponent, lines: string[]): void {
   const stateVarMap = new Map<string, IRStateVariable>();
   for (const sv of component.state) {
     stateVarMap.set(sv.name, sv);
+  }
+
+  // Emit derived state recomputation (before bindings so they see fresh values)
+  for (const sv of component.state) {
+    if (sv.derivedFrom) {
+      const deps = sv.derivedFrom.dependencies;
+      if (deps.length > 0) {
+        const condition = deps.map((d) => `m.state.dirty.${d}`).join(" or ");
+        lines.push(`  if ${condition} then`);
+        if (sv.derivedFrom.preamble) {
+          for (const line of sv.derivedFrom.preamble) {
+            lines.push(`    ${line}`);
+          }
+        }
+        lines.push(`    m.state.${sv.name} = ${sv.derivedFrom.brsExpression}`);
+        lines.push(`    m.state.dirty.${sv.name} = true`);
+        lines.push("  end if");
+      }
+    }
   }
 
   // Emit binding updates
@@ -294,6 +368,9 @@ function emitContentNodeCreation(
 
   lines.push(`  if m.state.dirty.${arrayVar} then`);
   lines.push('    content = CreateObject("roSGNode", "ContentNode")');
+  if (eachBlock.indexName) {
+    lines.push("    __idx = 0");
+  }
   lines.push(`    for each item in m.state.${arrayVar}`);
   lines.push('      child = content.createChild("ContentNode")');
 
@@ -305,6 +382,13 @@ function emitContentNodeCreation(
     for (const field of sv.arrayItemFields) {
       lines.push(`      child.${field.name} = item.${field.name}`);
     }
+  }
+
+  // Index field for {#each items as item, i}
+  if (eachBlock.indexName) {
+    lines.push('      child.addField("__index", "integer", false)');
+    lines.push("      child.__index = __idx");
+    lines.push("      __idx = __idx + 1");
   }
 
   lines.push("    end for");
@@ -412,17 +496,7 @@ function emitHandlers(component: IRComponent, lines: string[]): void {
 function emitHandler(handler: IRHandler, lines: string[]): void {
   lines.push(`function ${handler.name}()`);
 
-  for (const stmt of handler.statements) {
-    if ("preamble" in stmt && stmt.preamble) {
-      for (const line of stmt.preamble) {
-        lines.push(`  ${line}`);
-      }
-    }
-    const emitted = emitStatement(stmt);
-    if (emitted !== "") {
-      lines.push(`  ${emitted}`);
-    }
-  }
+  emitStatements(handler.statements, lines, 2);
 
   for (const varName of handler.mutatedVariables) {
     lines.push(`  m.state.dirty.${varName} = true`);
@@ -430,6 +504,135 @@ function emitHandler(handler: IRHandler, lines: string[]): void {
 
   lines.push("  m_update()");
   lines.push("end function");
+}
+
+function emitStatements(stmts: IRHandlerStatement[], lines: string[], indent: number): void {
+  const pad = " ".repeat(indent);
+  for (const stmt of stmts) {
+    switch (stmt.type) {
+      case "if": {
+        if (stmt.testPreamble) {
+          for (const line of stmt.testPreamble) {
+            lines.push(`${pad}${line}`);
+          }
+        }
+        lines.push(`${pad}if ${stmt.testBrs} then`);
+        emitStatements(stmt.consequent, lines, indent + 2);
+        if (stmt.alternate && stmt.alternate.length > 0) {
+          // Check if alternate is a single 'if' (else-if chain)
+          if (stmt.alternate.length === 1 && stmt.alternate[0]!.type === "if") {
+            const elseIf = stmt.alternate[0] as IRHandlerStatement & { type: "if" };
+            if (elseIf.testPreamble) {
+              for (const line of elseIf.testPreamble) {
+                lines.push(`${pad}${line}`);
+              }
+            }
+            lines.push(`${pad}else if ${(elseIf as { testBrs: string }).testBrs} then`);
+            emitStatements((elseIf as { consequent: IRHandlerStatement[] }).consequent, lines, indent + 2);
+            if ((elseIf as { alternate?: IRHandlerStatement[] }).alternate && (elseIf as { alternate?: IRHandlerStatement[] }).alternate!.length > 0) {
+              emitElseChain((elseIf as { alternate?: IRHandlerStatement[] }).alternate!, lines, indent, pad);
+            } else {
+              lines.push(`${pad}end if`);
+            }
+          } else {
+            lines.push(`${pad}else`);
+            emitStatements(stmt.alternate, lines, indent + 2);
+            lines.push(`${pad}end if`);
+          }
+        } else {
+          lines.push(`${pad}end if`);
+        }
+        break;
+      }
+      case "for-each": {
+        if (stmt.iterablePreamble) {
+          for (const line of stmt.iterablePreamble) {
+            lines.push(`${pad}${line}`);
+          }
+        }
+        lines.push(`${pad}for each ${stmt.variable} in ${stmt.iterableBrs}`);
+        emitStatements(stmt.body, lines, indent + 2);
+        lines.push(`${pad}end for`);
+        break;
+      }
+      case "while": {
+        if (stmt.testPreamble) {
+          for (const line of stmt.testPreamble) {
+            lines.push(`${pad}${line}`);
+          }
+        }
+        lines.push(`${pad}while ${stmt.testBrs}`);
+        emitStatements(stmt.body, lines, indent + 2);
+        lines.push(`${pad}end while`);
+        break;
+      }
+      case "try-catch": {
+        lines.push(`${pad}try`);
+        emitStatements(stmt.tryBody, lines, indent + 2);
+        lines.push(`${pad}catch ${stmt.catchVar}`);
+        emitStatements(stmt.catchBody, lines, indent + 2);
+        lines.push(`${pad}end try`);
+        break;
+      }
+      case "return": {
+        if (stmt.valuePreamble) {
+          for (const line of stmt.valuePreamble) {
+            lines.push(`${pad}${line}`);
+          }
+        }
+        if (stmt.valueBrs) {
+          lines.push(`${pad}return ${stmt.valueBrs}`);
+        } else {
+          lines.push(`${pad}return`);
+        }
+        break;
+      }
+      case "var-decl": {
+        if (stmt.valuePreamble) {
+          for (const line of stmt.valuePreamble) {
+            lines.push(`${pad}${line}`);
+          }
+        }
+        lines.push(`${pad}${stmt.variable} = ${stmt.valueBrs}`);
+        break;
+      }
+      default: {
+        // Flat statement types — use existing emitStatement
+        if ("preamble" in stmt && stmt.preamble) {
+          for (const line of stmt.preamble) {
+            lines.push(`${pad}${line}`);
+          }
+        }
+        const emitted = emitStatement(stmt);
+        if (emitted !== "") {
+          lines.push(`${pad}${emitted}`);
+        }
+        break;
+      }
+    }
+  }
+}
+
+function emitElseChain(alternate: IRHandlerStatement[], lines: string[], indent: number, pad: string): void {
+  if (alternate.length === 1 && alternate[0]!.type === "if") {
+    const elseIf = alternate[0] as IRHandlerStatement & { type: "if" };
+    if ((elseIf as { testPreamble?: string[] }).testPreamble) {
+      for (const line of (elseIf as { testPreamble?: string[] }).testPreamble!) {
+        lines.push(`${pad}${line}`);
+      }
+    }
+    lines.push(`${pad}else if ${(elseIf as { testBrs: string }).testBrs} then`);
+    emitStatements((elseIf as { consequent: IRHandlerStatement[] }).consequent, lines, indent + 2);
+    if ((elseIf as { alternate?: IRHandlerStatement[] }).alternate && (elseIf as { alternate?: IRHandlerStatement[] }).alternate!.length > 0) {
+      emitElseChain((elseIf as { alternate?: IRHandlerStatement[] }).alternate!, lines, indent, pad);
+    } else {
+      lines.push(`${pad}end if`);
+    }
+  } else {
+    lines.push(`${pad}else`);
+    emitStatements(alternate, lines, indent + 2);
+    lines.push(`${pad}end if`);
+  }
 }
 
 function emitExtractedCallbacks(component: IRComponent, lines: string[]): void {
@@ -459,6 +662,8 @@ function emitStatement(stmt: IRHandlerStatement): string {
       return `m.state.${stmt.variable} = ${stmt.brsCode}`;
     case "expr-statement":
       return stmt.brsCode;
+    default:
+      return `' unsupported statement type`;
   }
 }
 
@@ -471,6 +676,102 @@ function formatLiteral(value: string): string {
     return value;
   }
   return `"${escapeString(value)}"`;
+}
+
+function emitPropObserver(component: IRComponent, lines: string[]): void {
+  if (!component.props) return;
+
+  lines.push("");
+  lines.push("sub onPropChanged()");
+  for (const prop of component.props) {
+    lines.push(`  m.state.${prop.name} = m.top.${prop.name}`);
+    lines.push(`  m.state.dirty.${prop.name} = true`);
+  }
+  lines.push("  m_update()");
+  lines.push("end sub");
+}
+
+function emitTwoWayObservers(component: IRComponent, lines: string[]): void {
+  if (!component.twoWayBindings) return;
+
+  for (const twb of component.twoWayBindings) {
+    const varName = sanitizeVarName(twb.nodeId);
+    lines.push("");
+    lines.push(`sub on_${varName}_changed()`);
+    lines.push(`  m.state.${twb.stateVar} = m.${varName}.text`);
+    lines.push(`  m.state.dirty.${twb.stateVar} = true`);
+    lines.push("  m_update()");
+    lines.push("end sub");
+  }
+}
+
+function emitAsyncHandlers(component: IRComponent, lines: string[]): void {
+  if (!component.asyncHandlers) return;
+
+  for (const handler of component.asyncHandlers) {
+    // Emit main sub (pre-await statements + kickoff)
+    lines.push("");
+    lines.push(`sub ${handler.name}()`);
+    emitStatements(handler.statements, lines, 2);
+
+    // Kickoff first continuation
+    if (handler.continuations.length > 0) {
+      const first = handler.continuations[0]!;
+      emitAsyncKickoff(first, 0, lines);
+    }
+
+    lines.push("end sub");
+
+    // Emit each continuation sub
+    for (let i = 0; i < handler.continuations.length; i++) {
+      const cont = handler.continuations[i]!;
+      const nextCont = handler.continuations[i + 1];
+
+      lines.push("");
+      if (cont.awaitType === "generic") {
+        lines.push(`sub ${cont.name}(data as Dynamic)`);
+      } else {
+        lines.push(`sub ${cont.name}()`);
+      }
+
+      // Get the result from the previous await
+      if (cont.resultVar) {
+        if (cont.awaitType === "fetch") {
+          lines.push(`  ${cont.resultVar} = m.${cont.awaitTarget}.response`);
+        } else {
+          lines.push(`  ${cont.resultVar} = data`);
+        }
+      }
+
+      // Emit continuation body
+      emitStatements(cont.statements, lines, 2);
+
+      // Kickoff next continuation if present
+      if (nextCont) {
+        emitAsyncKickoff(nextCont, i + 1, lines);
+      }
+
+      // Dirty flags and update for mutations
+      for (const v of cont.mutatedVariables) {
+        lines.push(`  m.state.dirty.${v} = true`);
+      }
+      if (cont.mutatedVariables.length > 0) {
+        lines.push("  m_update()");
+      }
+
+      lines.push("end sub");
+    }
+  }
+}
+
+function emitAsyncKickoff(cont: { awaitType: string; awaitTarget: string; fetchUrl?: string; name: string }, idx: number, lines: string[]): void {
+  if (cont.awaitType === "fetch" && cont.fetchUrl) {
+    lines.push(`  m.${cont.awaitTarget} = fetch(${cont.fetchUrl})`);
+    lines.push(`  m.${cont.awaitTarget}.observeField("response", "${cont.name}")`);
+  } else {
+    lines.push(`  __promise_${idx} = ${cont.awaitTarget}`);
+    lines.push(`  Promise_then(__promise_${idx}, "${cont.name}")`);
+  }
 }
 
 function emitFetchCallbacks(component: IRComponent, lines: string[]): void {
@@ -498,7 +799,22 @@ function formatStateInitialValue(sv: IRStateVariable): string {
     if (sv.fetchCall) return "[]";
     return formatArrayLiteral(sv);
   }
+  if (sv.type === "object") {
+    return formatObjectLiteral(sv);
+  }
   return `"${escapeString(sv.initialValue)}"`;
+}
+
+function formatObjectLiteral(sv: IRStateVariable): string {
+  if (!sv.objectFields || sv.objectFields.length === 0) return "{}";
+
+  const entries = sv.objectFields.map((field) => {
+    if (field.type === "number") return `${field.name}: ${field.value}`;
+    if (field.type === "boolean") return `${field.name}: ${field.value}`;
+    return `${field.name}: "${escapeString(field.value)}"`;
+  });
+
+  return `{ ${entries.join(", ")} }`;
 }
 
 function formatArrayLiteral(sv: IRStateVariable): string {

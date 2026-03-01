@@ -41,7 +41,7 @@ import type { IRHandler, IRHandlerStatement } from "../ir/types.js";
 
 export interface TranspileContext {
   stateVarNames: Set<string>;
-  stateVarTypes: Map<string, "number" | "string" | "boolean" | "array">;
+  stateVarTypes: Map<string, "number" | "string" | "boolean" | "array" | "object">;
   singleExpressionOnly: boolean;
   tempVarCounter: number;
   chainDepth: number;
@@ -109,6 +109,8 @@ export function transpileExpression(node: any, ctx: TranspileContext): Transpile
       return transpileArrayExpression(node, ctx);
     case "NewExpression":
       return transpileNewExpression(node, ctx);
+    case "ChainExpression":
+      return transpileChainExpression(node, ctx);
     default: {
       ctx.errors.push(
         createError(
@@ -169,6 +171,13 @@ export function canTranspileAsSingleExpression(node: any): boolean {
 
     case "BinaryExpression":
     case "LogicalExpression":
+      if (node.operator === "??") {
+        // ?? uses SvelteRoku_iif in single-expression mode
+        return (
+          canTranspileAsSingleExpression(node.left) &&
+          canTranspileAsSingleExpression(node.right)
+        );
+      }
       return (
         canTranspileAsSingleExpression(node.left) &&
         canTranspileAsSingleExpression(node.right) &&
@@ -198,6 +207,9 @@ export function canTranspileAsSingleExpression(node: any): boolean {
         canTranspileAsSingleExpression(node.consequent) &&
         canTranspileAsSingleExpression(node.alternate)
       );
+
+    case "ChainExpression":
+      return false;
 
     default:
       return false;
@@ -917,6 +929,11 @@ function expandFunctionalMethod(objResult: TranspileResult, methodName: string, 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function transpileBinaryExpression(node: any, ctx: TranspileContext): TranspileResult {
+  // Nullish coalescing: a ?? b → temp-var pattern
+  if (node.operator === "??") {
+    return transpileNullishCoalescing(node, ctx);
+  }
+
   const op = BINARY_OP_MAP[node.operator];
   if (!op) {
     ctx.errors.push(
@@ -936,6 +953,31 @@ function transpileBinaryExpression(node: any, ctx: TranspileContext): TranspileR
     code: `(${left.code} ${op} ${right.code})`,
     dependencies: [...left.dependencies, ...right.dependencies],
   };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileNullishCoalescing(node: any, ctx: TranspileContext): TranspileResult {
+  const left = transpileExpression(node.left, ctx);
+  const right = transpileExpression(node.right, ctx);
+  const allDeps = [...left.dependencies, ...right.dependencies];
+
+  if (ctx.singleExpressionOnly) {
+    // In single-expression context, use SvelteRoku_iif helper
+    ctx.usesStdlib = true;
+    return {
+      code: `SvelteRoku_iif(${left.code} <> invalid, ${left.code}, ${right.code})`,
+      dependencies: allDeps,
+    };
+  }
+
+  const tmp = `__nc_${ctx.tempVarCounter++}`;
+  const preamble: string[] = [];
+  if (left.preamble) preamble.push(...left.preamble);
+  if (right.preamble) preamble.push(...right.preamble);
+  preamble.push(`${tmp} = ${right.code}`);
+  preamble.push(`if ${left.code} <> invalid then ${tmp} = ${left.code}`);
+
+  return { code: tmp, dependencies: allDeps, preamble, tempVarName: tmp };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1042,26 +1084,65 @@ function transpileObjectExpression(node: any, ctx: TranspileContext): TranspileR
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function transpileArrayExpression(node: any, ctx: TranspileContext): TranspileResult {
   const allDeps: string[] = [];
-  const elements: string[] = [];
+  const elems = node.elements ?? [];
 
-  for (const elem of node.elements ?? []) {
-    if (!elem) {
-      elements.push("invalid");
-      continue;
+  // Check for spread elements
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hasSpread = elems.some((e: any) => e?.type === "SpreadElement");
+
+  if (!hasSpread) {
+    const elements: string[] = [];
+    for (const elem of elems) {
+      if (!elem) {
+        elements.push("invalid");
+        continue;
+      }
+      const result = transpileExpression(elem, ctx);
+      allDeps.push(...result.dependencies);
+      elements.push(result.code);
     }
-    const result = transpileExpression(elem, ctx);
-    allDeps.push(...result.dependencies);
-    elements.push(result.code);
+    return { code: `[${elements.join(", ")}]`, dependencies: allDeps };
   }
 
-  return { code: `[${elements.join(", ")}]`, dependencies: allDeps };
+  // Spread elements present — requires multi-line expansion
+  if (ctx.singleExpressionOnly) {
+    ctx.errors.push(
+      createError(
+        ErrorCode.UNSUPPORTED_EXPRESSION,
+        locationFromOffset(ctx.source, node.start ?? 0, ctx.filename),
+        { expression: "spread in template" },
+      ),
+    );
+    return { code: "invalid", dependencies: [] };
+  }
+
+  const tmp = `__spread_${ctx.tempVarCounter++}`;
+  const preamble: string[] = [];
+  preamble.push(`${tmp} = []`);
+
+  for (const elem of elems) {
+    if (!elem) continue;
+    if (elem.type === "SpreadElement") {
+      const result = transpileExpression(elem.argument, ctx);
+      allDeps.push(...result.dependencies);
+      if (result.preamble) preamble.push(...result.preamble);
+      preamble.push(`${tmp}.Append(${result.code})`);
+    } else {
+      const result = transpileExpression(elem, ctx);
+      allDeps.push(...result.dependencies);
+      if (result.preamble) preamble.push(...result.preamble);
+      preamble.push(`${tmp}.Push(${result.code})`);
+    }
+  }
+
+  return { code: tmp, dependencies: allDeps, preamble, tempVarName: tmp };
 }
 
 /**
  * Infer the type of a receiver expression for method dispatch.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function inferType(node: any, ctx: TranspileContext): "array" | "string" | "number" | "boolean" | "unknown" {
+function inferType(node: any, ctx: TranspileContext): "array" | "string" | "number" | "boolean" | "object" | "unknown" {
   if (node.type === "Identifier") {
     const name = node.name;
     const t = ctx.stateVarTypes.get(name);
@@ -1543,6 +1624,93 @@ function inferBrowserType(node: any, _ctx: TranspileContext): string | null {
   }
 
   return null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileChainExpression(node: any, ctx: TranspileContext): TranspileResult {
+  if (ctx.singleExpressionOnly) {
+    ctx.errors.push(
+      createError(
+        ErrorCode.UNSUPPORTED_EXPRESSION,
+        locationFromOffset(ctx.source, node.start ?? 0, ctx.filename),
+        { expression: ctx.source.slice(node.start, node.end) },
+      ),
+    );
+    return { code: "invalid", dependencies: [] };
+  }
+
+  const preamble: string[] = [];
+  const allDeps: string[] = [];
+  const result = transpileChainNode(node.expression, preamble, allDeps, ctx);
+
+  if (preamble.length === 0) {
+    return { code: result, dependencies: allDeps };
+  }
+
+  return { code: result, dependencies: allDeps, preamble, tempVarName: result };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transpileChainNode(node: any, preamble: string[], deps: string[], ctx: TranspileContext): string {
+  if (node.type === "MemberExpression" && node.optional) {
+    // a?.b — guard on a being invalid
+    const objCode = transpileChainNode(node.object, preamble, deps, ctx);
+    const tmp = `__oc_${ctx.tempVarCounter++}`;
+    preamble.push(`${tmp} = invalid`);
+
+    let propAccess: string;
+    if (node.computed) {
+      const propResult = transpileExpression(node.property, ctx);
+      deps.push(...propResult.dependencies);
+      propAccess = `${objCode}[${propResult.code}]`;
+    } else {
+      propAccess = `${objCode}.${node.property.name}`;
+    }
+
+    preamble.push(`if ${objCode} <> invalid then ${tmp} = ${propAccess}`);
+    return tmp;
+  }
+
+  if (node.type === "CallExpression" && node.optional) {
+    // a?.b() — guard on callee being callable
+    const calleeCode = transpileChainNode(node.callee, preamble, deps, ctx);
+    const tmp = `__oc_${ctx.tempVarCounter++}`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const argResults = (node.arguments ?? []).map((a: any) => transpileExpression(a, ctx));
+    for (const r of argResults) deps.push(...r.dependencies);
+    const argCodes = argResults.map((r: TranspileResult) => r.code);
+
+    preamble.push(`${tmp} = invalid`);
+    preamble.push(`if ${calleeCode} <> invalid then ${tmp} = ${calleeCode}(${argCodes.join(", ")})`);
+    return tmp;
+  }
+
+  if (node.type === "MemberExpression" && !node.optional) {
+    // Non-optional member in chain: a?.b.c — the .c part
+    const objCode = transpileChainNode(node.object, preamble, deps, ctx);
+    if (node.computed) {
+      const propResult = transpileExpression(node.property, ctx);
+      deps.push(...propResult.dependencies);
+      return `${objCode}[${propResult.code}]`;
+    }
+    return `${objCode}.${node.property.name}`;
+  }
+
+  if (node.type === "CallExpression" && !node.optional) {
+    // Non-optional call in chain: a?.b()
+    const calleeCode = transpileChainNode(node.callee, preamble, deps, ctx);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const argResults = (node.arguments ?? []).map((a: any) => transpileExpression(a, ctx));
+    for (const r of argResults) deps.push(...r.dependencies);
+    const argCodes = argResults.map((r: TranspileResult) => r.code);
+    return `${calleeCode}(${argCodes.join(", ")})`;
+  }
+
+  // Base case: identifier or literal
+  const result = transpileExpression(node, ctx);
+  deps.push(...result.dependencies);
+  if (result.preamble) preamble.push(...result.preamble);
+  return result.code;
 }
 
 function escapeString(s: string): string {

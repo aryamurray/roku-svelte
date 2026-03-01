@@ -2,7 +2,6 @@ import type { AST } from "svelte/compiler";
 import type { CompileError, CompileWarning } from "../errors/types.js";
 import { WarningCode } from "../errors/types.js";
 import { createWarning, locationFromOffset } from "../errors/formatter.js";
-import { noAsync } from "./rules/no-async.js";
 import { noFetch } from "./rules/no-fetch.js";
 import { noTimers } from "./rules/no-timers.js";
 import { noDom } from "./rules/no-dom.js";
@@ -25,7 +24,6 @@ type ValidationRule = (
 ) => CompileError[];
 
 const rules: ValidationRule[] = [
-  noAsync,
   noFetch,
   noTimers,
   noDom,

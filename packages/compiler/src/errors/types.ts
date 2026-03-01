@@ -47,6 +47,8 @@ export const ErrorCode = {
   NO_WORKERS: "NO_WORKERS",
   FLEX_UNKNOWN_SIZE: "FLEX_UNKNOWN_SIZE",
   UNSUPPORTED_ASSET_FORMAT: "UNSUPPORTED_ASSET_FORMAT",
+  UNSUPPORTED_BIND: "UNSUPPORTED_BIND",
+  ASYNC_AWAIT_IN_LOOP: "ASYNC_AWAIT_IN_LOOP",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];

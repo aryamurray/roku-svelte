@@ -180,6 +180,18 @@ export const ERROR_MESSAGES: Record<string, ErrorDefinition> = {
     docsUrl: `${DOCS_BASE}/unsupported-asset-format`,
     fatal: true,
   },
+  [ErrorCode.UNSUPPORTED_BIND]: {
+    message: 'bind:{property} is only supported on <input> (TextEditBox)',
+    hint: "Two-way binding is only supported for bind:value on <input> elements. Use one-way bindings for other elements.",
+    docsUrl: `${DOCS_BASE}/unsupported-bind`,
+    fatal: true,
+  },
+  [ErrorCode.ASYNC_AWAIT_IN_LOOP]: {
+    message: "await inside loops is not supported",
+    hint: "Move the await outside of the loop or use sequential async operations.",
+    docsUrl: `${DOCS_BASE}/async-await-in-loop`,
+    fatal: true,
+  },
 };
 
 export const WARNING_MESSAGES: Record<string, WarningDefinition> = {

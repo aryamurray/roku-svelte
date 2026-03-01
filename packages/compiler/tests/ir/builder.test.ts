@@ -652,13 +652,14 @@ describe("buildIR - {#each} block handling", () => {
     expect(errors.some(e => e.code === "EACH_OUTSIDE_LIST")).toBe(true);
   });
 
-  it("errors on {#each} with index", () => {
+  it("supports {#each} with index", () => {
     const source = `<script>let items = [{ title: "A" }];</script><list>{#each items as item, i}<text>{item.title}</text>{/each}</list>`;
     const ast = parseSource(source);
-    const { errors } = buildIR(ast, source, "Test.svelte");
+    const { errors, component } = buildIR(ast, source, "Test.svelte");
 
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors.some(e => e.code === "EACH_WITH_INDEX")).toBe(true);
+    expect(errors.length).toBe(0);
+    expect(component.eachBlocks).toBeDefined();
+    expect(component.eachBlocks![0]!.indexName).toBe("i");
   });
 
   it("errors on {#each} with key expression", () => {

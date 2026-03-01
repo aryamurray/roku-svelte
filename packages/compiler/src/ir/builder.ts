@@ -18,6 +18,11 @@ import type {
   IRArrayItemField,
   IRArrayItem,
   AssetReference,
+  IRPropVariable,
+  IRObjectField,
+  IRTwoWayBinding,
+  IRAsyncHandler,
+  IRContinuation,
 } from "./types.js";
 import type { CompileError, CompileWarning } from "../errors/types.js";
 import { ErrorCode, WarningCode } from "../errors/types.js";
@@ -152,6 +157,7 @@ interface EachContext {
   alias: string;
   arrayVar: string;
   fieldBindings: IRItemFieldBinding[];
+  indexName: string | null;
 }
 
 interface BuildContext {
@@ -173,6 +179,7 @@ interface BuildContext {
   eachContext: EachContext | null;
   componentName: string;
   eachCounter: number;
+  ifCounter: number;
   usesFetch: boolean;
   usesStdlib: boolean;
   constNames: Set<string>;
@@ -180,6 +187,14 @@ interface BuildContext {
   extractedCallbacks: IRHandler[];
   callbackCounter: number;
   styleContext: StyleContext;
+  componentImports: Map<string, string>;
+  props: IRPropVariable[];
+  onMountHandler: IRHandler | null;
+  onDestroyHandler: IRHandler | null;
+  twoWayBindings: IRTwoWayBinding[];
+  asyncHandlers: IRAsyncHandler[];
+  usesAsync: boolean;
+  asyncContCounter: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -233,12 +248,21 @@ export function buildIR(
     eachContext: null,
     componentName: name,
     eachCounter: 0,
+    ifCounter: 0,
     usesFetch: false,
     usesStdlib: false,
     constNames: new Set(),
     requiredPolyfills: new Set(),
     extractedCallbacks: [],
     callbackCounter: 0,
+    componentImports: new Map(),
+    props: [],
+    onMountHandler: null,
+    onDestroyHandler: null,
+    twoWayBindings: [],
+    asyncHandlers: [],
+    usesAsync: false,
+    asyncContCounter: 0,
     styleContext: {
       canvasWidth: options?.resolution?.width ?? 0,
       canvasHeight: options?.resolution?.height ?? 0,
@@ -345,6 +369,35 @@ export function buildIR(
     component.assets = ctx.assets;
   }
 
+  if (ctx.props.length > 0) {
+    component.props = ctx.props;
+  }
+
+  if (ctx.componentImports.size > 0) {
+    component.componentImports = [...ctx.componentImports.entries()].map(([name, path]) => ({ name, path }));
+  }
+
+  if (ctx.onMountHandler) {
+    component.onMountHandler = ctx.onMountHandler;
+  }
+
+  if (ctx.onDestroyHandler) {
+    component.onDestroyHandler = ctx.onDestroyHandler;
+  }
+
+  if (ctx.twoWayBindings.length > 0) {
+    component.twoWayBindings = ctx.twoWayBindings;
+  }
+
+  if (ctx.asyncHandlers.length > 0) {
+    component.asyncHandlers = ctx.asyncHandlers;
+    component.usesAsync = true;
+  }
+
+  if (ctx.usesAsync) {
+    component.usesAsync = true;
+  }
+
   return { component, warnings: ctx.warnings, errors: ctx.errors };
 }
 
@@ -354,6 +407,69 @@ function extractState(instance: any, ctx: BuildContext): void {
   const body = instance.content.body as any[];
 
   for (const node of body) {
+    // Import tracking: detect .svelte component imports
+    if (node.type === "ImportDeclaration") {
+      const source = node.source?.value as string;
+      if (source && source.endsWith(".svelte")) {
+        for (const spec of node.specifiers ?? []) {
+          if (spec.type === "ImportDefaultSpecifier" && spec.local?.name) {
+            ctx.componentImports.set(spec.local.name, source);
+          }
+        }
+      }
+      // Allow imports from 'svelte' (onMount, onDestroy, etc.)
+      continue;
+    }
+
+    // Lifecycle hooks: onMount(() => { ... }) and onDestroy(() => { ... })
+    if (
+      node.type === "ExpressionStatement" &&
+      node.expression?.type === "CallExpression" &&
+      node.expression.callee?.type === "Identifier"
+    ) {
+      const calleeName = node.expression.callee.name;
+      if (calleeName === "onMount" || calleeName === "onDestroy") {
+        const callback = node.expression.arguments?.[0];
+        if (callback && (callback.type === "ArrowFunctionExpression" || callback.type === "FunctionExpression")) {
+          const handler = compileLifecycleCallback(calleeName, callback, ctx);
+          if (handler) {
+            if (calleeName === "onMount") {
+              ctx.onMountHandler = handler;
+            } else {
+              ctx.onDestroyHandler = handler;
+            }
+          }
+        }
+        continue;
+      }
+    }
+
+    // Export let props: export let title = "default"
+    if (node.type === "ExportNamedDeclaration" && node.declaration?.type === "VariableDeclaration") {
+      for (const decl of node.declaration.declarations) {
+        const propName = decl.id?.name;
+        if (!propName) continue;
+
+        let propType: "string" | "number" | "boolean" = "string";
+        let defaultValue = "";
+        let stateType: "number" | "string" | "boolean" | "array" = "string";
+
+        if (decl.init?.type === "Literal") {
+          const val = decl.init.value;
+          if (typeof val === "number") { propType = "number"; defaultValue = String(val); stateType = "number"; }
+          else if (typeof val === "boolean") { propType = "boolean"; defaultValue = String(val); stateType = "boolean"; }
+          else if (typeof val === "string") { propType = "string"; defaultValue = val; stateType = "string"; }
+        } else if (!decl.init) {
+          defaultValue = "";
+        }
+
+        ctx.props.push({ name: propName, type: propType, defaultValue });
+        ctx.stateVarNames.add(propName);
+        ctx.stateVars.push({ name: propName, initialValue: defaultValue, type: stateType });
+      }
+      continue;
+    }
+
     if (node.type === "VariableDeclaration") {
       if (node.kind === "const") {
         // Track const names for transpiler context but don't create state vars
@@ -410,6 +526,8 @@ function extractState(instance: any, ctx: BuildContext): void {
           });
         } else if (decl.init.type === "ArrayExpression") {
           extractArrayState(name, decl.init, decl.start ?? 0, ctx);
+        } else if (decl.init.type === "ObjectExpression") {
+          extractObjectState(name, decl.init, decl.start ?? 0, ctx);
         } else if (
           decl.init.type === "CallExpression" &&
           decl.init.callee?.type === "Identifier" &&
@@ -430,8 +548,60 @@ function extractState(instance: any, ctx: BuildContext): void {
       const funcName = node.id?.name;
       if (!funcName) continue;
 
+      if (node.async) {
+        extractAsyncHandler(node, ctx);
+        continue;
+      }
+
       ctx.handlerNames.add(funcName);
       compileHandlerBody(funcName, node.body, ctx);
+    } else if (
+      node.type === "LabeledStatement" &&
+      node.label?.name === "$" &&
+      node.body?.type === "ExpressionStatement" &&
+      node.body.expression?.type === "AssignmentExpression" &&
+      node.body.expression.operator === "="
+    ) {
+      // $: derived = expr
+      const assignExpr = node.body.expression;
+      const derivedName = assignExpr.left?.name;
+      if (!derivedName) continue;
+
+      const tCtx = createTranspileContext(ctx);
+      const result = transpileExpression(assignExpr.right, tCtx);
+
+      if (tCtx.errors.length > 0) {
+        ctx.errors.push(...tCtx.errors);
+        continue;
+      }
+      if (tCtx.usesStdlib) ctx.usesStdlib = true;
+      mergePolyfillContext(tCtx, ctx);
+
+      const deps = result.dependencies.filter(d => ctx.stateVarNames.has(d));
+
+      // Infer type from expression or default to number
+      let derivedType: "number" | "string" | "boolean" | "array" = "number";
+      const rhs = assignExpr.right;
+      if (rhs.type === "Literal") {
+        if (typeof rhs.value === "string") derivedType = "string";
+        else if (typeof rhs.value === "boolean") derivedType = "boolean";
+      } else if (rhs.type === "TemplateLiteral") {
+        derivedType = "string";
+      } else if (rhs.type === "BinaryExpression" && (rhs.operator === ">" || rhs.operator === "<" || rhs.operator === ">=" || rhs.operator === "<=" || rhs.operator === "===" || rhs.operator === "!==" || rhs.operator === "==" || rhs.operator === "!=")) {
+        derivedType = "boolean";
+      }
+
+      ctx.stateVarNames.add(derivedName);
+      ctx.stateVars.push({
+        name: derivedName,
+        initialValue: derivedType === "string" ? "" : derivedType === "boolean" ? "false" : "0",
+        type: derivedType,
+        derivedFrom: {
+          brsExpression: result.code,
+          dependencies: deps,
+          preamble: result.preamble,
+        },
+      });
     }
   }
 }
@@ -441,13 +611,8 @@ function extractArrayState(name: string, arrayExpr: any, offset: number, ctx: Bu
   const elements = arrayExpr.elements;
 
   if (!elements || elements.length === 0) {
-    ctx.errors.push(
-      createError(
-        ErrorCode.UNSUPPORTED_ARRAY_INIT,
-        locationFromOffset(ctx.source, offset, ctx.filename),
-        { name },
-      ),
-    );
+    ctx.stateVarNames.add(name);
+    ctx.stateVars.push({ name, initialValue: "", type: "array", arrayItemFields: [], arrayItems: [] });
     return;
   }
 
@@ -517,6 +682,57 @@ function extractArrayState(name: string, arrayExpr: any, offset: number, ctx: Bu
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractObjectState(name: string, objExpr: any, offset: number, ctx: BuildContext): void {
+  const properties = objExpr.properties ?? [];
+
+  const objectFields: IRObjectField[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const prop of properties) {
+    if (prop.type !== "Property") {
+      ctx.errors.push(
+        createError(
+          ErrorCode.UNSUPPORTED_STATE_INIT,
+          locationFromOffset(ctx.source, offset, ctx.filename),
+          { name },
+        ),
+      );
+      return;
+    }
+    const key = prop.key?.name ?? prop.key?.value;
+    if (!key) continue;
+
+    if (prop.value?.type === "Literal") {
+      const val = prop.value.value;
+      let fieldType: "string" | "number" | "boolean" = "string";
+      if (typeof val === "number") fieldType = "number";
+      else if (typeof val === "boolean") fieldType = "boolean";
+      objectFields.push({ name: key, value: String(val), type: fieldType });
+    } else if (prop.value?.type === "ObjectExpression" || prop.value?.type === "ArrayExpression") {
+      ctx.errors.push(
+        createError(
+          ErrorCode.UNSUPPORTED_STATE_INIT,
+          locationFromOffset(ctx.source, offset, ctx.filename),
+          { name },
+        ),
+      );
+      return;
+    } else {
+      ctx.errors.push(
+        createError(
+          ErrorCode.UNSUPPORTED_STATE_INIT,
+          locationFromOffset(ctx.source, offset, ctx.filename),
+          { name },
+        ),
+      );
+      return;
+    }
+  }
+
+  ctx.stateVarNames.add(name);
+  ctx.stateVars.push({ name, initialValue: "", type: "object", objectFields });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractFetchState(name: string, callExpr: any, offset: number, ctx: BuildContext): void {
   const args = callExpr.arguments;
 
@@ -562,110 +778,283 @@ function compileHandlerBody(funcName: string, body: any, ctx: BuildContext): voi
   const bodyStatements = body.body as any[];
 
   for (const stmt of bodyStatements) {
-    if (stmt.type === "ExpressionStatement") {
-      const expr = stmt.expression;
+    compileStatement(stmt, statements, mutatedVariables, funcName, ctx);
+  }
 
-      if (expr.type === "UpdateExpression") {
-        const varName = expr.argument?.name;
-        if (!varName || !ctx.stateVarNames.has(varName)) {
-          ctx.errors.push(
-            createError(
-              ErrorCode.UNSUPPORTED_HANDLER_BODY,
-              locationFromOffset(ctx.source, stmt.start ?? 0, ctx.filename),
-              { handler: funcName },
-            ),
-          );
-          continue;
-        }
+  ctx.handlers.push({ name: funcName, statements, mutatedVariables });
+}
 
-        if (expr.operator === "++") {
-          statements.push({ type: "increment", variable: varName });
-        } else if (expr.operator === "--") {
-          statements.push({ type: "decrement", variable: varName });
-        }
-        if (!mutatedVariables.includes(varName)) {
-          mutatedVariables.push(varName);
-        }
-      } else if (expr.type === "AssignmentExpression" && expr.operator === "=") {
-        const varName = expr.left?.name;
-        if (!varName || !ctx.stateVarNames.has(varName)) {
-          // Try transpiler fallback for non-state assignments or complex expressions
-          const handled = tryTranspileStatement(stmt, statements, mutatedVariables, funcName, ctx);
-          if (!handled) {
-            ctx.errors.push(
-              createError(
-                ErrorCode.UNSUPPORTED_HANDLER_BODY,
-                locationFromOffset(ctx.source, stmt.start ?? 0, ctx.filename),
-                { handler: funcName },
-              ),
-            );
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileLifecycleCallback(name: string, callback: any, ctx: BuildContext): IRHandler | null {
+  const statements: IRHandlerStatement[] = [];
+  const mutatedVariables: string[] = [];
+
+  const body = callback.body;
+  if (body?.type === "BlockStatement") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const stmt of body.body as any[]) {
+      compileStatement(stmt, statements, mutatedVariables, name, ctx);
+    }
+  } else if (body) {
+    // Expression body (arrow function)
+    compileStatement({ type: "ExpressionStatement", expression: body, start: body.start }, statements, mutatedVariables, name, ctx);
+  }
+
+  return { name, statements, mutatedVariables };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractAsyncHandler(node: any, ctx: BuildContext): void {
+  const funcName = node.id?.name;
+  if (!funcName) return;
+
+  ctx.handlerNames.add(funcName);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bodyStmts = node.body?.body as any[];
+  if (!bodyStmts) return;
+
+  // Split body at each await point
+  const preAwaitStatements: IRHandlerStatement[] = [];
+  const preAwaitMutated: string[] = [];
+  const continuations: IRContinuation[] = [];
+
+  let currentStatements = preAwaitStatements;
+  let currentMutated = preAwaitMutated;
+
+  for (const stmt of bodyStmts) {
+    // Check for await in variable declarations: const x = await expr
+    if (
+      stmt.type === "VariableDeclaration" &&
+      stmt.declarations?.[0]?.init?.type === "AwaitExpression"
+    ) {
+      const decl = stmt.declarations[0];
+      const resultVar = decl.id?.name;
+      const awaitExpr = decl.init.argument;
+
+      // Check if await is in a loop context (unsupported)
+      // (This is already a top-level statement so we're fine)
+
+      // Determine await type
+      let awaitType: "fetch" | "generic" = "generic";
+      let awaitTarget = "";
+      let fetchUrl: string | undefined;
+
+      if (
+        awaitExpr.type === "CallExpression" &&
+        awaitExpr.callee?.type === "Identifier" &&
+        awaitExpr.callee.name === "fetch"
+      ) {
+        awaitType = "fetch";
+        const args = awaitExpr.arguments ?? [];
+        const urlArg = args[0];
+        if (urlArg?.type === "Literal" && typeof urlArg.value === "string") {
+          fetchUrl = `"${urlArg.value}"`;
+        } else if (urlArg) {
+          const tCtx = createTranspileContext(ctx);
+          const urlResult = transpileExpression(urlArg, tCtx);
+          if (tCtx.errors.length > 0) {
+            ctx.errors.push(...tCtx.errors);
+            return;
           }
-          continue;
+          fetchUrl = urlResult.code;
         }
+        awaitTarget = `__async_fetchTask_${ctx.asyncContCounter}`;
+      } else {
+        // Generic await
+        const tCtx = createTranspileContext(ctx);
+        const exprResult = transpileExpression(awaitExpr, tCtx);
+        if (tCtx.errors.length > 0) {
+          ctx.errors.push(...tCtx.errors);
+          return;
+        }
+        if (tCtx.usesStdlib) ctx.usesStdlib = true;
+        mergePolyfillContext(tCtx, ctx);
+        awaitTarget = exprResult.code;
+      }
 
-        const rhs = expr.right;
+      const contName = `${funcName}__cont_${ctx.asyncContCounter}`;
+      ctx.asyncContCounter++;
 
-        if (rhs.type === "Literal") {
+      // Start a new continuation
+      const contStatements: IRHandlerStatement[] = [];
+      const contMutated: string[] = [];
+
+      continuations.push({
+        name: contName,
+        awaitType,
+        awaitTarget,
+        fetchUrl,
+        resultVar: resultVar ?? undefined,
+        statements: contStatements,
+        mutatedVariables: contMutated,
+      });
+
+      currentStatements = contStatements;
+      currentMutated = contMutated;
+      continue;
+    }
+
+    // Check for expression statements with await: await expr (no result)
+    if (
+      stmt.type === "ExpressionStatement" &&
+      stmt.expression?.type === "AwaitExpression"
+    ) {
+      const awaitExpr = stmt.expression.argument;
+      const tCtx = createTranspileContext(ctx);
+      const exprResult = transpileExpression(awaitExpr, tCtx);
+      if (tCtx.errors.length > 0) {
+        ctx.errors.push(...tCtx.errors);
+        return;
+      }
+      if (tCtx.usesStdlib) ctx.usesStdlib = true;
+      mergePolyfillContext(tCtx, ctx);
+
+      const contName = `${funcName}__cont_${ctx.asyncContCounter}`;
+      ctx.asyncContCounter++;
+
+      const contStatements: IRHandlerStatement[] = [];
+      const contMutated: string[] = [];
+
+      continuations.push({
+        name: contName,
+        awaitType: "generic",
+        awaitTarget: exprResult.code,
+        statements: contStatements,
+        mutatedVariables: contMutated,
+      });
+
+      currentStatements = contStatements;
+      currentMutated = contMutated;
+      continue;
+    }
+
+    // Regular statement — compile into current segment
+    compileStatement(stmt, currentStatements, currentMutated, funcName, ctx);
+  }
+
+  // Build the async handler
+  const asyncHandler: IRAsyncHandler = {
+    name: funcName,
+    statements: preAwaitStatements,
+    mutatedVariables: preAwaitMutated,
+    isAsync: true,
+    continuations,
+  };
+
+  ctx.asyncHandlers.push(asyncHandler);
+  ctx.usesAsync = true;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileStatement(stmt: any, statements: IRHandlerStatement[], mutatedVariables: string[], funcName: string, ctx: BuildContext): void {
+  if (stmt.type === "ExpressionStatement") {
+    compileExpressionStatement(stmt, statements, mutatedVariables, funcName, ctx);
+  } else if (stmt.type === "IfStatement") {
+    compileIfStatement(stmt, statements, mutatedVariables, funcName, ctx);
+  } else if (stmt.type === "ForOfStatement") {
+    compileForOfStatement(stmt, statements, mutatedVariables, funcName, ctx);
+  } else if (stmt.type === "WhileStatement") {
+    compileWhileStatement(stmt, statements, mutatedVariables, funcName, ctx);
+  } else if (stmt.type === "ReturnStatement") {
+    compileReturnStatement(stmt, statements, mutatedVariables, ctx);
+  } else if (stmt.type === "VariableDeclaration") {
+    compileVarDeclStatement(stmt, statements, mutatedVariables, ctx);
+  } else if (stmt.type === "TryStatement") {
+    compileTryStatement(stmt, statements, mutatedVariables, funcName, ctx);
+  } else if (stmt.type === "BlockStatement") {
+    // Unwrap block statements
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inner of stmt.body as any[]) {
+      compileStatement(inner, statements, mutatedVariables, funcName, ctx);
+    }
+  } else {
+    ctx.errors.push(
+      createError(
+        ErrorCode.UNSUPPORTED_HANDLER_BODY,
+        locationFromOffset(ctx.source, stmt.start ?? 0, ctx.filename),
+        { handler: funcName },
+      ),
+    );
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileExpressionStatement(stmt: any, statements: IRHandlerStatement[], mutatedVariables: string[], funcName: string, ctx: BuildContext): void {
+  const expr = stmt.expression;
+
+  if (expr.type === "UpdateExpression") {
+    const varName = expr.argument?.name;
+    if (!varName || !ctx.stateVarNames.has(varName)) {
+      ctx.errors.push(
+        createError(
+          ErrorCode.UNSUPPORTED_HANDLER_BODY,
+          locationFromOffset(ctx.source, stmt.start ?? 0, ctx.filename),
+          { handler: funcName },
+        ),
+      );
+      return;
+    }
+
+    if (expr.operator === "++") {
+      statements.push({ type: "increment", variable: varName });
+    } else if (expr.operator === "--") {
+      statements.push({ type: "decrement", variable: varName });
+    }
+    if (!mutatedVariables.includes(varName)) {
+      mutatedVariables.push(varName);
+    }
+  } else if (expr.type === "AssignmentExpression" && expr.operator === "=") {
+    const varName = expr.left?.name;
+    if (!varName || !ctx.stateVarNames.has(varName)) {
+      // Try transpiler fallback for non-state assignments or complex expressions
+      const handled = tryTranspileStatement(stmt, statements, mutatedVariables, funcName, ctx);
+      if (!handled) {
+        ctx.errors.push(
+          createError(
+            ErrorCode.UNSUPPORTED_HANDLER_BODY,
+            locationFromOffset(ctx.source, stmt.start ?? 0, ctx.filename),
+            { handler: funcName },
+          ),
+        );
+      }
+      return;
+    }
+
+    const rhs = expr.right;
+
+    if (rhs.type === "Literal") {
+      statements.push({
+        type: "assign-literal",
+        variable: varName,
+        value: String(rhs.value),
+      });
+    } else if (
+      rhs.type === "UnaryExpression" &&
+      rhs.operator === "!" &&
+      rhs.argument?.type === "Identifier" &&
+      rhs.argument.name === varName
+    ) {
+      statements.push({ type: "assign-negate", variable: varName });
+    } else if (rhs.type === "BinaryExpression") {
+      if (
+        rhs.left?.type === "Identifier" &&
+        rhs.left.name === varName &&
+        rhs.right?.type === "Literal"
+      ) {
+        if (rhs.operator === "+") {
           statements.push({
-            type: "assign-literal",
+            type: "assign-add",
             variable: varName,
-            value: String(rhs.value),
+            operand: String(rhs.right.value),
           });
-        } else if (
-          rhs.type === "UnaryExpression" &&
-          rhs.operator === "!" &&
-          rhs.argument?.type === "Identifier" &&
-          rhs.argument.name === varName
-        ) {
-          statements.push({ type: "assign-negate", variable: varName });
-        } else if (rhs.type === "BinaryExpression") {
-          if (
-            rhs.left?.type === "Identifier" &&
-            rhs.left.name === varName &&
-            rhs.right?.type === "Literal"
-          ) {
-            if (rhs.operator === "+") {
-              statements.push({
-                type: "assign-add",
-                variable: varName,
-                operand: String(rhs.right.value),
-              });
-            } else if (rhs.operator === "-") {
-              statements.push({
-                type: "assign-sub",
-                variable: varName,
-                operand: String(rhs.right.value),
-              });
-            } else {
-              // Fall back to transpiler for other binary operators
-              const handled = tryTranspileAssignment(varName, rhs, stmt, statements, mutatedVariables, ctx);
-              if (!handled) {
-                ctx.errors.push(
-                  createError(
-                    ErrorCode.UNSUPPORTED_HANDLER_BODY,
-                    locationFromOffset(ctx.source, stmt.start ?? 0, ctx.filename),
-                    { handler: funcName },
-                  ),
-                );
-              }
-              continue;
-            }
-          } else {
-            // Fall back to transpiler for complex binary expressions
-            const handled = tryTranspileAssignment(varName, rhs, stmt, statements, mutatedVariables, ctx);
-            if (!handled) {
-              ctx.errors.push(
-                createError(
-                  ErrorCode.UNSUPPORTED_HANDLER_BODY,
-                  locationFromOffset(ctx.source, stmt.start ?? 0, ctx.filename),
-                  { handler: funcName },
-                ),
-              );
-            }
-            continue;
-          }
+        } else if (rhs.operator === "-") {
+          statements.push({
+            type: "assign-sub",
+            variable: varName,
+            operand: String(rhs.right.value),
+          });
         } else {
-          // Fall back to transpiler for any other RHS
           const handled = tryTranspileAssignment(varName, rhs, stmt, statements, mutatedVariables, ctx);
           if (!handled) {
             ctx.errors.push(
@@ -676,15 +1065,10 @@ function compileHandlerBody(funcName: string, body: any, ctx: BuildContext): voi
               ),
             );
           }
-          continue;
-        }
-
-        if (!mutatedVariables.includes(varName)) {
-          mutatedVariables.push(varName);
+          return;
         }
       } else {
-        // Fall back to transpiler for non-assignment expression statements
-        const handled = tryTranspileStatement(stmt, statements, mutatedVariables, funcName, ctx);
+        const handled = tryTranspileAssignment(varName, rhs, stmt, statements, mutatedVariables, ctx);
         if (!handled) {
           ctx.errors.push(
             createError(
@@ -694,8 +1078,28 @@ function compileHandlerBody(funcName: string, body: any, ctx: BuildContext): voi
             ),
           );
         }
+        return;
       }
     } else {
+      const handled = tryTranspileAssignment(varName, rhs, stmt, statements, mutatedVariables, ctx);
+      if (!handled) {
+        ctx.errors.push(
+          createError(
+            ErrorCode.UNSUPPORTED_HANDLER_BODY,
+            locationFromOffset(ctx.source, stmt.start ?? 0, ctx.filename),
+            { handler: funcName },
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mutatedVariables.includes(varName)) {
+      mutatedVariables.push(varName);
+    }
+  } else {
+    const handled = tryTranspileStatement(stmt, statements, mutatedVariables, funcName, ctx);
+    if (!handled) {
       ctx.errors.push(
         createError(
           ErrorCode.UNSUPPORTED_HANDLER_BODY,
@@ -705,8 +1109,182 @@ function compileHandlerBody(funcName: string, body: any, ctx: BuildContext): voi
       );
     }
   }
+}
 
-  ctx.handlers.push({ name: funcName, statements, mutatedVariables });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileIfStatement(stmt: any, statements: IRHandlerStatement[], mutatedVariables: string[], funcName: string, ctx: BuildContext): void {
+  const tCtx = createTranspileContext(ctx);
+  const testResult = transpileExpression(stmt.test, tCtx);
+  if (tCtx.errors.length > 0) {
+    ctx.errors.push(...tCtx.errors);
+    return;
+  }
+  if (tCtx.usesStdlib) ctx.usesStdlib = true;
+  mergePolyfillContext(tCtx, ctx);
+
+  const consequent: IRHandlerStatement[] = [];
+  if (stmt.consequent.type === "BlockStatement") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inner of stmt.consequent.body as any[]) {
+      compileStatement(inner, consequent, mutatedVariables, funcName, ctx);
+    }
+  } else {
+    compileStatement(stmt.consequent, consequent, mutatedVariables, funcName, ctx);
+  }
+
+  let alternate: IRHandlerStatement[] | undefined;
+  if (stmt.alternate) {
+    alternate = [];
+    if (stmt.alternate.type === "BlockStatement") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const inner of stmt.alternate.body as any[]) {
+        compileStatement(inner, alternate, mutatedVariables, funcName, ctx);
+      }
+    } else {
+      compileStatement(stmt.alternate, alternate, mutatedVariables, funcName, ctx);
+    }
+  }
+
+  statements.push({
+    type: "if",
+    testBrs: testResult.code,
+    testPreamble: testResult.preamble,
+    consequent,
+    alternate,
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileForOfStatement(stmt: any, statements: IRHandlerStatement[], mutatedVariables: string[], funcName: string, ctx: BuildContext): void {
+  const tCtx = createTranspileContext(ctx);
+  const iterableResult = transpileExpression(stmt.right, tCtx);
+  if (tCtx.errors.length > 0) {
+    ctx.errors.push(...tCtx.errors);
+    return;
+  }
+  if (tCtx.usesStdlib) ctx.usesStdlib = true;
+  mergePolyfillContext(tCtx, ctx);
+
+  // Extract loop variable name
+  let variable = "item";
+  if (stmt.left?.type === "VariableDeclaration" && stmt.left.declarations?.[0]?.id?.name) {
+    variable = stmt.left.declarations[0].id.name;
+  }
+
+  const body: IRHandlerStatement[] = [];
+  if (stmt.body.type === "BlockStatement") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inner of stmt.body.body as any[]) {
+      compileStatement(inner, body, mutatedVariables, funcName, ctx);
+    }
+  } else {
+    compileStatement(stmt.body, body, mutatedVariables, funcName, ctx);
+  }
+
+  statements.push({
+    type: "for-each",
+    variable,
+    iterableBrs: iterableResult.code,
+    iterablePreamble: iterableResult.preamble,
+    body,
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileWhileStatement(stmt: any, statements: IRHandlerStatement[], mutatedVariables: string[], funcName: string, ctx: BuildContext): void {
+  const tCtx = createTranspileContext(ctx);
+  const testResult = transpileExpression(stmt.test, tCtx);
+  if (tCtx.errors.length > 0) {
+    ctx.errors.push(...tCtx.errors);
+    return;
+  }
+  if (tCtx.usesStdlib) ctx.usesStdlib = true;
+  mergePolyfillContext(tCtx, ctx);
+
+  const body: IRHandlerStatement[] = [];
+  if (stmt.body.type === "BlockStatement") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inner of stmt.body.body as any[]) {
+      compileStatement(inner, body, mutatedVariables, funcName, ctx);
+    }
+  } else {
+    compileStatement(stmt.body, body, mutatedVariables, funcName, ctx);
+  }
+
+  statements.push({
+    type: "while",
+    testBrs: testResult.code,
+    testPreamble: testResult.preamble,
+    body,
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileTryStatement(stmt: any, statements: IRHandlerStatement[], mutatedVariables: string[], funcName: string, ctx: BuildContext): void {
+  const tryBody: IRHandlerStatement[] = [];
+  if (stmt.block?.body) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inner of stmt.block.body as any[]) {
+      compileStatement(inner, tryBody, mutatedVariables, funcName, ctx);
+    }
+  }
+
+  const catchVar = stmt.handler?.param?.name ?? "e";
+  const catchBody: IRHandlerStatement[] = [];
+  if (stmt.handler?.body?.body) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inner of stmt.handler.body.body as any[]) {
+      compileStatement(inner, catchBody, mutatedVariables, funcName, ctx);
+    }
+  }
+
+  statements.push({ type: "try-catch", tryBody, catchVar, catchBody });
+
+  // If there's a finalizer (finally block), inline its statements after the try-catch
+  if (stmt.finalizer?.body) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inner of stmt.finalizer.body as any[]) {
+      compileStatement(inner, statements, mutatedVariables, funcName, ctx);
+    }
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileReturnStatement(stmt: any, statements: IRHandlerStatement[], _mutatedVariables: string[], ctx: BuildContext): void {
+  if (stmt.argument) {
+    const tCtx = createTranspileContext(ctx);
+    const valResult = transpileExpression(stmt.argument, tCtx);
+    if (tCtx.errors.length > 0) {
+      ctx.errors.push(...tCtx.errors);
+      return;
+    }
+    if (tCtx.usesStdlib) ctx.usesStdlib = true;
+    mergePolyfillContext(tCtx, ctx);
+    statements.push({ type: "return", valueBrs: valResult.code, valuePreamble: valResult.preamble });
+  } else {
+    statements.push({ type: "return" });
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function compileVarDeclStatement(stmt: any, statements: IRHandlerStatement[], _mutatedVariables: string[], ctx: BuildContext): void {
+  for (const decl of stmt.declarations) {
+    const name = decl.id?.name;
+    if (!name) continue;
+    if (decl.init) {
+      const tCtx = createTranspileContext(ctx);
+      const valResult = transpileExpression(decl.init, tCtx);
+      if (tCtx.errors.length > 0) {
+        ctx.errors.push(...tCtx.errors);
+        continue;
+      }
+      if (tCtx.usesStdlib) ctx.usesStdlib = true;
+      mergePolyfillContext(tCtx, ctx);
+      statements.push({ type: "var-decl", variable: name, valueBrs: valResult.code, valuePreamble: valResult.preamble });
+    } else {
+      statements.push({ type: "var-decl", variable: name, valueBrs: "invalid" });
+    }
+  }
 }
 
 function buildFragment(
@@ -732,6 +1310,14 @@ function buildFragment(
         );
       }
       // If inside eachContext (nested), it's handled by buildListElement
+    } else if (child.type === "IfBlock") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ifNodes = buildIfBlock(child as any, ctx);
+      nodes.push(...ifNodes);
+    } else if (child.type === "Component") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const compNode = buildComponentNode(child as any, ctx);
+      if (compNode) nodes.push(compNode);
     }
   }
 
@@ -861,6 +1447,26 @@ function buildElement(
         );
         properties.push(...styleResult.properties);
       }
+    } else if (attr.type === "BindDirective") {
+      const bindName = attr.name; // "value", etc.
+      if (bindName === "value" && sgType === "TextEditBox") {
+        // bind:value on <input> → two-way binding
+        const exprTag = attr.expression;
+        if (exprTag?.type === "Identifier" && ctx.stateVarNames.has(exprTag.name)) {
+          const varName = exprTag.name;
+          // One-way: state→text (set in init via binding)
+          properties.push({ name: "text", value: "", dynamic: true });
+          (attr as SvelteAttribute & { _bindingVar?: string })._bindingVar = varName;
+        }
+      } else {
+        ctx.errors.push(
+          createError(
+            ErrorCode.UNSUPPORTED_BIND,
+            locationFromOffset(ctx.source, attr.start, ctx.filename),
+            { property: bindName },
+          ),
+        );
+      }
     } else if (attr.type === "OnDirective") {
       // Handle on:select — store for post-processing with node ID
       // Inline handlers are caught by validation rule
@@ -897,6 +1503,23 @@ function buildElement(
             property: binding.sgField,
             stateVar: binding.varName,
             dependencies: [binding.varName],
+          });
+        }
+      } else if (attr.type === "BindDirective") {
+        const bindVar = (attr as SvelteAttribute & { _bindingVar?: string })._bindingVar;
+        if (bindVar) {
+          // One-way binding: state → text
+          ctx.bindings.push({
+            nodeId: id,
+            property: "text",
+            stateVar: bindVar,
+            dependencies: [bindVar],
+          });
+          // Two-way binding: text → state
+          ctx.twoWayBindings.push({
+            nodeId: id,
+            property: "text",
+            stateVar: bindVar,
           });
         }
       } else if (attr.type === "OnDirective") {
@@ -981,6 +1604,199 @@ function buildElement(
   return node;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildComponentNode(element: any, ctx: BuildContext): IRNode | null {
+  const compName = element.name as string;
+
+  if (!ctx.componentImports.has(compName)) {
+    ctx.warnings.push(
+      createWarning(
+        WarningCode.UNKNOWN_ELEMENT,
+        locationFromOffset(ctx.source, element.start ?? 0, ctx.filename),
+        { element: compName },
+      ),
+    );
+    return null;
+  }
+
+  const id = generateId(compName.toLowerCase());
+  const properties: IRProperty[] = [];
+
+  for (const attr of element.attributes ?? []) {
+    if (attr.type === "Attribute") {
+      const attrName = attr.name;
+      const value = extractStaticAttributeValue(attr);
+
+      if (value !== null) {
+        // Static prop
+        properties.push({ name: attrName, value });
+      } else {
+        // Dynamic prop — create binding
+        const exprTag = extractExpressionFromAttribute(attr);
+        if (exprTag?.type === "Identifier") {
+          const varName = exprTag.name;
+          if (ctx.stateVarNames.has(varName)) {
+            properties.push({ name: attrName, value: "", dynamic: true });
+            ctx.bindings.push({
+              nodeId: id,
+              property: attrName,
+              stateVar: varName,
+              dependencies: [varName],
+            });
+          }
+        } else if (exprTag) {
+          // Complex expression prop
+          const tCtx = createTranspileContext(ctx);
+          tCtx.singleExpressionOnly = true;
+          const result = transpileExpression(exprTag, tCtx);
+          if (tCtx.errors.length === 0 && result.code !== "invalid") {
+            if (tCtx.usesStdlib) ctx.usesStdlib = true;
+            mergePolyfillContext(tCtx, ctx);
+            const deps = result.dependencies.filter(d => ctx.stateVarNames.has(d));
+            properties.push({ name: attrName, value: "", dynamic: true });
+            ctx.bindings.push({
+              nodeId: id,
+              property: attrName,
+              stateVar: deps[0] ?? "",
+              dependencies: [...new Set(deps)],
+              brsExpression: result.code,
+            });
+          } else {
+            ctx.errors.push(...tCtx.errors);
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    id,
+    type: compName,
+    properties,
+    children: [],
+    isComponent: true,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildIfBlock(ifBlock: any, ctx: BuildContext): IRNode[] {
+  const counter = ctx.ifCounter++;
+  const nodes: IRNode[] = [];
+
+  // Flatten the if/else-if/else chain
+  interface IfBranch {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    test: any | null; // null for else branch
+    fragment: AST.Fragment;
+  }
+
+  const branches: IfBranch[] = [];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function flattenIfChain(block: any): void {
+    branches.push({ test: block.test, fragment: block.consequent });
+    if (block.alternate) {
+      // Check if alternate is another IfBlock (else-if)
+      // In Svelte AST, alternate is a Fragment; if it contains a single IfBlock child, that's an else-if
+      const altFragment = block.alternate as AST.Fragment;
+      const altNodes = altFragment.nodes ?? [];
+      const firstAlt = altNodes[0];
+      if (altNodes.length === 1 && firstAlt && firstAlt.type === "IfBlock") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        flattenIfChain(firstAlt as any);
+      } else {
+        // else branch
+        branches.push({ test: null, fragment: altFragment });
+      }
+    }
+  }
+
+  flattenIfChain(ifBlock);
+
+  // Transpile all test expressions
+  const testResults: Array<{ code: string; deps: string[] }> = [];
+  for (const branch of branches) {
+    if (branch.test) {
+      const tCtx = createTranspileContext(ctx);
+      tCtx.singleExpressionOnly = true;
+      const result = transpileExpression(branch.test, tCtx);
+      if (tCtx.errors.length > 0) {
+        ctx.errors.push(...tCtx.errors);
+        return [];
+      }
+      if (tCtx.usesStdlib) ctx.usesStdlib = true;
+      mergePolyfillContext(tCtx, ctx);
+      testResults.push({ code: result.code, deps: result.dependencies.filter(d => ctx.stateVarNames.has(d)) });
+    } else {
+      testResults.push({ code: "", deps: [] });
+    }
+  }
+
+  // Create Group wrappers with visibility bindings for each branch
+  for (let i = 0; i < branches.length; i++) {
+    const branch = branches[i]!;
+    const groupId = `if_${counter}_${i}`;
+
+    // Build the fragment children
+    const children = buildFragment(branch.fragment, ctx);
+
+    // Determine static visible value (first branch true, rest false)
+    const staticVisible = i === 0 ? "true" : "false";
+
+    const properties: IRProperty[] = [
+      { name: "visible", value: staticVisible },
+    ];
+
+    const node: IRNode = {
+      id: groupId,
+      type: "Group",
+      properties,
+      children,
+    };
+    nodes.push(node);
+
+    // Build visibility expression and dependencies for binding
+    let visExpr: string;
+    let allDeps: string[] = [];
+
+    if (i === 0) {
+      // First branch: visible when test is true
+      visExpr = testResults[0]!.code;
+      allDeps = [...testResults[0]!.deps];
+    } else if (branch.test === null) {
+      // Else branch: visible when all previous tests are false
+      const negations = testResults.slice(0, i).filter(t => t.code !== "").map(t => `not (${t.code})`);
+      visExpr = negations.length > 0 ? negations.join(" and ") : "true";
+      for (let j = 0; j < i; j++) {
+        allDeps.push(...testResults[j]!.deps);
+      }
+    } else {
+      // Else-if branch: visible when previous tests are false AND this test is true
+      const negations = testResults.slice(0, i).filter(t => t.code !== "").map(t => `not (${t.code})`);
+      const parts = [...negations, testResults[i]!.code];
+      visExpr = parts.join(" and ");
+      for (let j = 0; j <= i; j++) {
+        allDeps.push(...testResults[j]!.deps);
+      }
+    }
+
+    const uniqueDeps = [...new Set(allDeps)];
+
+    // Only create binding if there are state dependencies
+    if (uniqueDeps.length > 0) {
+      ctx.bindings.push({
+        nodeId: groupId,
+        property: "visible",
+        stateVar: uniqueDeps[0]!,
+        dependencies: uniqueDeps,
+        brsExpression: visExpr,
+      });
+    }
+  }
+
+  return nodes;
+}
+
 function buildListElement(
   element: SvelteElement,
   ctx: BuildContext,
@@ -1030,16 +1846,8 @@ function buildListElement(
     // Validate the each block
     const eachStart = eachBlockNode.start ?? 0;
 
-    // Check for index
-    if (eachBlockNode.index) {
-      ctx.errors.push(
-        createError(
-          ErrorCode.EACH_WITH_INDEX,
-          locationFromOffset(ctx.source, eachStart, ctx.filename),
-        ),
-      );
-      return null;
-    }
+    // Capture index name if present
+    const indexName: string | null = eachBlockNode.index ?? null;
 
     // Check for key expression
     if (eachBlockNode.key) {
@@ -1104,6 +1912,7 @@ function buildListElement(
       alias,
       arrayVar: arrayVarName,
       fieldBindings: [],
+      indexName,
     };
 
     const bodyFragment = eachBlockNode.body as AST.Fragment;
@@ -1138,6 +1947,9 @@ function buildListElement(
       itemComponentName,
       listNodeId: id,
     };
+    if (indexName) {
+      eachBlock.indexName = indexName;
+    }
     ctx.eachBlocks.push(eachBlock);
 
     // Add itemComponentName property to MarkupList
@@ -1234,6 +2046,10 @@ function extractEachTextContent(
       ) {
         hasFieldRefs = true;
         parts.push({ type: "field", value: expr.property.name });
+      } else if (expr?.type === "Identifier" && ctx.eachContext.indexName && expr.name === ctx.eachContext.indexName) {
+        // Index variable reference: {i} → bind to __index field
+        hasFieldRefs = true;
+        parts.push({ type: "field", value: "__index" });
       } else if (expr?.type === "Identifier") {
         // Plain identifier in each context — outer state ref error
         if (ctx.stateVarNames.has(expr.name)) {
@@ -1447,7 +2263,7 @@ function convertValue(sgField: string, value: string): string {
 export { cssColorToRokuHexValue as cssColorToRokuHex };
 
 function createTranspileContext(ctx: BuildContext): TranspileContext {
-  const stateVarTypes = new Map<string, "number" | "string" | "boolean" | "array">();
+  const stateVarTypes = new Map<string, "number" | "string" | "boolean" | "array" | "object">();
   for (const sv of ctx.stateVars) {
     stateVarTypes.set(sv.name, sv.type);
   }
@@ -1520,6 +2336,24 @@ function tryTranspileStatement(
     const varName = expr.left?.name;
     if (varName && ctx.stateVarNames.has(varName)) {
       return tryTranspileAssignment(varName, expr.right, stmt, statements, mutatedVariables, ctx);
+    }
+    // Local variable assignment (not state) — emit as var-decl (no m.state. prefix)
+    if (varName) {
+      const tCtx = createTranspileContext(ctx);
+      const result = transpileExpression(expr.right, tCtx);
+      if (tCtx.errors.length > 0) {
+        ctx.errors.push(...tCtx.errors);
+        return false;
+      }
+      if (tCtx.usesStdlib) ctx.usesStdlib = true;
+      mergePolyfillContext(tCtx, ctx);
+      statements.push({
+        type: "var-decl",
+        variable: varName,
+        valueBrs: result.code,
+        valuePreamble: result.preamble,
+      });
+      return true;
     }
   }
 

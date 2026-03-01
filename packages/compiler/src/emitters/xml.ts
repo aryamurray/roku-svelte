@@ -34,6 +34,24 @@ export function emitXML(component: IRComponent): string {
     }
   }
 
+  if (component.usesAsync) {
+    lines.push(
+      '  <script type="text/brightscript" uri="pkg:/source/runtime/Promise.brs" />',
+    );
+    lines.push(
+      '  <script type="text/brightscript" uri="pkg:/source/runtime/MicrotaskQueue.brs" />',
+    );
+  }
+
+  if (component.props && component.props.length > 0) {
+    lines.push("  <interface>");
+    for (const prop of component.props) {
+      const defaultAttr = prop.defaultValue ? ` value="${escapeXml(prop.defaultValue)}"` : "";
+      lines.push(`    <field id="${escapeXml(prop.name)}" type="${escapeXml(prop.type)}" onChange="onPropChanged"${defaultAttr} />`);
+    }
+    lines.push("  </interface>");
+  }
+
   if (component.children.length > 0) {
     lines.push("  <children>");
     for (const child of component.children) {

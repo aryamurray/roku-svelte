@@ -113,18 +113,15 @@ describe("compile - static/dynamic prop split", () => {
 });
 
 describe("compile - invalid fixtures (v0.1)", () => {
-  it("rejects async-function with fatal error", async () => {
+  it("accepts async-function (async/await now supported)", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "async-function.svelte"),
       "utf-8",
     );
     const result = await compile(source, "async-function.svelte");
 
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors.some((e) => e.fatal)).toBe(true);
-    expect(result.errors.some((e) => e.code === "NO_ASYNC")).toBe(true);
-    expect(result.xml).toBe("");
-    expect(result.brightscript).toBe("");
+    // async/await is now supported — should not produce NO_ASYNC errors
+    expect(result.errors.some((e) => e.code === "NO_ASYNC")).toBe(false);
   });
 
   it("rejects timer-usage with fatal error", async () => {
@@ -484,16 +481,15 @@ describe("compile - v0.3 invalid fixtures", () => {
     expect(result.xml).toBe("");
   });
 
-  it("rejects each-with-index with EACH_WITH_INDEX", async () => {
+  it("accepts each-with-index ({#each} index now supported)", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "each-with-index.svelte"),
       "utf-8",
     );
     const result = await compile(source, "each-with-index.svelte");
 
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors.some((e) => e.code === "EACH_WITH_INDEX")).toBe(true);
-    expect(result.xml).toBe("");
+    // {#each} with index is now supported — should not produce EACH_WITH_INDEX errors
+    expect(result.errors.some((e) => e.code === "EACH_WITH_INDEX")).toBe(false);
   });
 
   it("rejects each-with-key with EACH_WITH_KEY", async () => {
