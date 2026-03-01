@@ -168,6 +168,12 @@ export const ERROR_MESSAGES: Record<string, ErrorDefinition> = {
     docsUrl: `${DOCS_BASE}/no-workers`,
     fatal: true,
   },
+  [ErrorCode.FLEX_UNKNOWN_SIZE]: {
+    message: 'Flex child has unknown {axis} in {filename}:{line}',
+    hint: "Flex layout requires all children to have explicit or percentage-based sizes. Add style=\"{axis}: Npx\" or use itemSize on <list> instead.",
+    docsUrl: `${DOCS_BASE}/flex-unknown-size`,
+    fatal: true,
+  },
 };
 
 export const WARNING_MESSAGES: Record<string, WarningDefinition> = {
@@ -182,5 +188,17 @@ export const WARNING_MESSAGES: Record<string, WarningDefinition> = {
   [WarningCode.UNKNOWN_ELEMENT]: {
     message:
       'Element <{element}> is not a recognized svelte-roku element and will be ignored',
+  },
+  [WarningCode.UNSUPPORTED_CSS_HINT]: {
+    message:
+      'CSS property "{property}" is not supported on Roku. {hint}',
+  },
+  [WarningCode.UNSUPPORTED_STYLE_BLOCK]: {
+    message:
+      '<style> blocks are not supported on Roku. Use inline style attributes instead.',
+  },
+  [WarningCode.CSS_CONTEXT_MISMATCH]: {
+    message:
+      'CSS property "{property}" has no effect on {nodeType}. {hint}',
   },
 };

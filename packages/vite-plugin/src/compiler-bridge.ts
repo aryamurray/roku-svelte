@@ -3,16 +3,16 @@ import { join, basename } from "pathe";
 import { compile, type CompileResult, type CompileOptions } from "@svelte-roku/compiler";
 import type { ResolvedConfig } from "@svelte-roku/config";
 
-export function compileSvelteFile(
+export async function compileSvelteFile(
   filePath: string,
   config: ResolvedConfig,
-): CompileResult {
+): Promise<CompileResult> {
   const source = readFileSync(filePath, "utf-8");
   const filename = basename(filePath, ".svelte");
   const isEntry = filePath === config.entry;
 
   const options: CompileOptions = { isEntry };
-  const result = compile(source, filename, options);
+  const result = await compile(source, filename, options);
 
   if (result.errors.length === 0) {
     const componentsDir = join(config.outDir, "components");

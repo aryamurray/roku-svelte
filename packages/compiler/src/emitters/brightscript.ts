@@ -10,7 +10,7 @@ import type {
   IREachBlock,
 } from "../ir/types.js";
 
-const FIELD_TYPES: Record<string, "string" | "number" | "boolean" | "color"> = {
+const FIELD_TYPES: Record<string, "string" | "number" | "boolean" | "color" | "array"> = {
   text: "string",
   width: "number",
   height: "number",
@@ -20,6 +20,16 @@ const FIELD_TYPES: Record<string, "string" | "number" | "boolean" | "color"> = {
   visible: "boolean",
   focusable: "boolean",
   uri: "string",
+  translation: "array",
+  rotation: "number",
+  scale: "array",
+  horizAlign: "string",
+  vertAlign: "string",
+  wrap: "boolean",
+  maxLines: "number",
+  lineSpacing: "number",
+  font: "string",
+  letterSpacing: "number",
 };
 
 /**
@@ -344,7 +354,7 @@ function coerceToString(varName: string, sv: IRStateVariable | undefined): strin
 function coerceValue(
   varName: string,
   sv: IRStateVariable | undefined,
-  targetType: "string" | "number" | "boolean" | "color",
+  targetType: "string" | "number" | "boolean" | "color" | "array",
 ): string {
   const sourceType = sv?.type ?? "string";
 
@@ -554,11 +564,21 @@ export function toBrightScriptValue(fieldName: string, value: string): string {
     return `"${value}"`;
   }
 
+  // Array fields: translation=[x,y], scale=[x,y]
+  const arrayMatch = value.match(/^\[(.+)\]$/);
+  if (arrayMatch && FIELD_TYPES[fieldName] === "array") {
+    return `[${arrayMatch[1]}]`;
+  }
+
   const numericFields = new Set([
     "width",
     "height",
     "fontSize",
     "opacity",
+    "rotation",
+    "lineSpacing",
+    "letterSpacing",
+    "maxLines",
   ]);
   if (numericFields.has(fieldName)) {
     const num = parseFloat(value);

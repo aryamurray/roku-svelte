@@ -22,6 +22,21 @@ import type { CompileError, CompileWarning } from "../errors/types.js";
 import { ErrorCode, WarningCode } from "../errors/types.js";
 import { createError, createWarning, locationFromOffset } from "../errors/formatter.js";
 import { transpileExpression, type TranspileContext } from "../transpiler/expression.js";
+import {
+  resolveLength,
+  cssColorToRokuHex as cssColorToRokuHexValue,
+  parseTransform,
+  resolveFont,
+  type LengthContext,
+} from "./css-values.js";
+
+export interface StyleContext {
+  canvasWidth: number;
+  canvasHeight: number;
+  parentWidth: number;
+  parentHeight: number;
+  parentFontSize: number;
+}
 
 const ELEMENT_MAP: Record<string, SGNodeType> = {
   rectangle: "Rectangle",
@@ -38,12 +53,57 @@ const ELEMENT_MAP: Record<string, SGNodeType> = {
 };
 
 const CSS_PROPERTY_MAP: Record<string, string | null> = {
-  color: "color",
+  color: null,              // context-sensitive: handled in dispatch
   "font-size": "fontSize",
-  "background-color": "color",
+  "background-color": null, // context-sensitive: handled in dispatch
   width: "width",
   height: "height",
   opacity: "opacity",
+  "letter-spacing": "letterSpacing",
+  "line-height": "lineSpacing",
+  // Handled with special logic (null = known but dispatched separately)
+  display: null,
+  visibility: null,
+  transform: null,
+  left: null,
+  top: null,
+  "text-align": null,
+  "font-weight": null,
+  "font-family": null,
+  "white-space": null,
+  "word-wrap": null,
+  "overflow-wrap": null,
+  // Flex properties — stored as flexStyles metadata
+  "flex-direction": null,
+  "justify-content": null,
+  "align-items": null,
+  "align-self": null,
+  flex: null,
+  "flex-grow": null,
+  "flex-wrap": null,
+  gap: null,
+  "row-gap": null,
+  "column-gap": null,
+  padding: null,
+  "padding-top": null,
+  "padding-right": null,
+  "padding-bottom": null,
+  "padding-left": null,
+  // Unsupported with hints (null = known, warning issued in dispatch)
+  margin: null,
+  "margin-top": null,
+  "margin-right": null,
+  "margin-bottom": null,
+  "margin-left": null,
+  border: null,
+  "border-radius": null,
+  "box-shadow": null,
+  "background-image": null,
+  overflow: null,
+  position: null,
+  "max-width": null,
+  "max-height": null,
+  "z-index": null,
 };
 
 const ATTRIBUTE_MAP: Record<string, string> = {
@@ -55,6 +115,17 @@ const ATTRIBUTE_MAP: Record<string, string> = {
   text: "text",
   visible: "visible",
   itemSize: "itemSize",
+  translation: "translation",
+  rotation: "rotation",
+  scale: "scale",
+  horizAlign: "horizAlign",
+  vertAlign: "vertAlign",
+  wrap: "wrap",
+  maxLines: "maxLines",
+  lineSpacing: "lineSpacing",
+  font: "font",
+  letterSpacing: "letterSpacing",
+  focusable: "focusable",
 };
 
 let nodeIdCounter = 0;
@@ -65,6 +136,7 @@ function generateId(prefix: string): string {
 
 export interface BuildOptions {
   isEntry?: boolean;
+  resolution?: { width: number; height: number };
 }
 
 export interface BuildResult {
@@ -102,6 +174,7 @@ interface BuildContext {
   requiredPolyfills: Set<string>;
   extractedCallbacks: IRHandler[];
   callbackCounter: number;
+  styleContext: StyleContext;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -159,6 +232,13 @@ export function buildIR(
     requiredPolyfills: new Set(),
     extractedCallbacks: [],
     callbackCounter: 0,
+    styleContext: {
+      canvasWidth: options?.resolution?.width ?? 0,
+      canvasHeight: options?.resolution?.height ?? 0,
+      parentWidth: options?.resolution?.width ?? 0,
+      parentHeight: options?.resolution?.height ?? 0,
+      parentFontSize: 16,
+    },
   };
 
   // Extract state and handlers from <script>
@@ -699,14 +779,20 @@ function buildElement(
       }
 
       if (attrName === "style") {
-        const styleProps = parseInlineStyle(
+        const styleResult = parseInlineStyle(
           value,
+          sgType,
+          ctx.styleContext,
           ctx.source,
           ctx.filename,
           element.start,
           ctx.warnings,
         );
-        properties.push(...styleProps);
+        properties.push(...styleResult.properties);
+        if (styleResult.flexStyles) {
+          // Store flex styles temporarily — will be attached to IRNode later
+          (element as SvelteElement & { _flexStyles?: Record<string, string> })._flexStyles = styleResult.flexStyles;
+        }
         continue;
       }
 
@@ -750,18 +836,19 @@ function buildElement(
     } else if (attr.type === "StyleDirective") {
       const cssProp = attr.name;
       const value = extractStaticAttributeValue(attr);
-      const sgField = CSS_PROPERTY_MAP[cssProp];
 
-      if (sgField === undefined) {
-        ctx.warnings.push(
-          createWarning(
-            WarningCode.UNSUPPORTED_CSS,
-            locationFromOffset(ctx.source, attr.start, ctx.filename),
-            { property: cssProp },
-          ),
+      if (value !== null) {
+        // Run through the same dispatch logic as inline style
+        const styleResult = parseInlineStyle(
+          `${cssProp}: ${value}`,
+          sgType,
+          ctx.styleContext,
+          ctx.source,
+          ctx.filename,
+          attr.start,
+          ctx.warnings,
         );
-      } else if (sgField !== null && value !== null) {
-        properties.push({ name: sgField, value: convertValue(sgField, value) });
+        properties.push(...styleResult.properties);
       }
     } else if (attr.type === "OnDirective") {
       // Handle on:select — store for post-processing with node ID
@@ -802,7 +889,22 @@ function buildElement(
     ctx.autofocusNodeId = id;
   }
 
+  // Update style context for children based on this node's resolved dimensions
+  const prevStyleContext = ctx.styleContext;
+  const thisWidth = properties.find((p) => p.name === "width");
+  const thisHeight = properties.find((p) => p.name === "height");
+  if (thisWidth || thisHeight) {
+    ctx.styleContext = {
+      ...prevStyleContext,
+      parentWidth: thisWidth ? parseFloat(thisWidth.value) || prevStyleContext.parentWidth : prevStyleContext.parentWidth,
+      parentHeight: thisHeight ? parseFloat(thisHeight.value) || prevStyleContext.parentHeight : prevStyleContext.parentHeight,
+    };
+  }
+
   const children = buildFragment(element.fragment, ctx);
+
+  // Restore parent style context
+  ctx.styleContext = prevStyleContext;
 
   // Handle text content for Labels
   let textContent: string | undefined;
@@ -840,6 +942,12 @@ function buildElement(
 
   if (focusable) {
     node.focusable = true;
+  }
+
+  // Attach flex styles if present
+  const flexStyles = (element as SvelteElement & { _flexStyles?: Record<string, string> })._flexStyles;
+  if (flexStyles) {
+    node.flexStyles = flexStyles;
   }
 
   return node;
@@ -1299,7 +1407,7 @@ function extractStaticAttributeValue(attr: SvelteAttribute): string | null {
 
 function convertValue(sgField: string, value: string): string {
   if (sgField === "color") {
-    return cssColorToRokuHex(value);
+    return cssColorToRokuHexValue(value);
   }
   if (sgField === "visible") {
     return value === "false" || value === "none" ? "false" : "true";
@@ -1307,38 +1415,8 @@ function convertValue(sgField: string, value: string): string {
   return value;
 }
 
-export function cssColorToRokuHex(color: string): string {
-  const trimmed = color.trim().toLowerCase();
-
-  if (trimmed.startsWith("0x")) return trimmed;
-
-  if (/^#[0-9a-f]{6}$/.test(trimmed)) {
-    return `0x${trimmed.slice(1)}ff`;
-  }
-
-  if (/^#[0-9a-f]{3}$/.test(trimmed)) {
-    const r = trimmed[1]! + trimmed[1]!;
-    const g = trimmed[2]! + trimmed[2]!;
-    const b = trimmed[3]! + trimmed[3]!;
-    return `0x${r}${g}${b}ff`;
-  }
-
-  if (/^#[0-9a-f]{8}$/.test(trimmed)) {
-    return `0x${trimmed.slice(1)}`;
-  }
-
-  const namedColors: Record<string, string> = {
-    white: "0xffffffff",
-    black: "0x000000ff",
-    red: "0xff0000ff",
-    green: "0x00ff00ff",
-    blue: "0x0000ffff",
-    yellow: "0xffff00ff",
-    transparent: "0x00000000",
-  };
-
-  return namedColors[trimmed] ?? color;
-}
+// Re-export for backward compatibility with tests
+export { cssColorToRokuHexValue as cssColorToRokuHex };
 
 function createTranspileContext(ctx: BuildContext): TranspileContext {
   const stateVarTypes = new Map<string, "number" | "string" | "boolean" | "array">();
@@ -1464,15 +1542,59 @@ function mergePolyfillContext(tCtx: TranspileContext, ctx: BuildContext): void {
   ctx.callbackCounter = tCtx.callbackCounter;
 }
 
+// CSS properties that get a specific helpful warning
+const UNSUPPORTED_CSS_HINTS: Record<string, string> = {
+  margin: "Use padding on parent Group or explicit positioning.",
+  "margin-top": "Use padding on parent Group or explicit positioning.",
+  "margin-right": "Use padding on parent Group or explicit positioning.",
+  "margin-bottom": "Use padding on parent Group or explicit positioning.",
+  "margin-left": "Use padding on parent Group or explicit positioning.",
+  border: "Use a Rectangle node behind your content.",
+  "border-radius": "Border radius is not supported on Roku.",
+  "box-shadow": "Box shadow is not supported on Roku.",
+  "background-image": 'Use an <image> element instead.',
+  overflow: "Use ScrollingGroup for scrollable content.",
+  position: "All positioning is absolute on Roku.",
+  "max-width": "Use explicit width instead.",
+  "max-height": "Use explicit height instead.",
+  "z-index": "Z-order is controlled by node order in SceneGraph.",
+};
+
+// Flex properties that get stored as metadata
+const FLEX_PROPERTIES = new Set([
+  "flex-direction", "justify-content", "align-items", "align-self",
+  "flex", "flex-grow", "flex-wrap", "gap", "row-gap", "column-gap",
+  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+]);
+
+interface ParseInlineStyleResult {
+  properties: IRProperty[];
+  flexStyles?: Record<string, string>;
+}
+
 function parseInlineStyle(
   style: string | null,
+  nodeType: SGNodeType,
+  styleContext: StyleContext,
   source: string,
   filename: string,
   nodeOffset: number,
   warnings: CompileWarning[],
-): IRProperty[] {
-  if (!style) return [];
+): ParseInlineStyleResult {
+  if (!style) return { properties: [] };
   const props: IRProperty[] = [];
+  let flexStyles: Record<string, string> | undefined;
+
+  let translationX = 0;
+  let translationY = 0;
+
+  const lengthCtx: LengthContext = {
+    parentFontSize: styleContext.parentFontSize,
+    canvasWidth: styleContext.canvasWidth,
+    canvasHeight: styleContext.canvasHeight,
+    parentWidth: styleContext.parentWidth,
+    parentHeight: styleContext.parentHeight,
+  };
 
   const declarations = style
     .split(";")
@@ -1486,11 +1608,151 @@ function parseInlineStyle(
     const cssProp = decl.slice(0, colonIndex).trim();
     const cssValue = decl.slice(colonIndex + 1).trim();
 
+    // 1. display: none → visible: false
     if (cssProp === "display" && cssValue === "none") {
       props.push({ name: "visible", value: "false" });
       continue;
     }
 
+    // 2. display: flex → store flex metadata
+    if (cssProp === "display" && cssValue === "flex") {
+      if (!flexStyles) flexStyles = {};
+      flexStyles.display = "flex";
+      continue;
+    }
+
+    // 3. visibility: hidden → visible: false
+    if (cssProp === "visibility" && cssValue === "hidden") {
+      props.push({ name: "visible", value: "false" });
+      continue;
+    }
+
+    // 4. transform → parse and accumulate
+    if (cssProp === "transform") {
+      const result = parseTransform(cssValue);
+      if (result.translation) {
+        translationX += result.translation[0];
+        translationY += result.translation[1];
+      }
+      if (result.rotation != null) {
+        props.push({ name: "rotation", value: String(result.rotation) });
+      }
+      if (result.scale) {
+        props.push({ name: "scale", value: `[${result.scale[0]}, ${result.scale[1]}]` });
+      }
+      continue;
+    }
+
+    // 5. left → accumulate into translationX
+    if (cssProp === "left") {
+      const resolved = resolveLength(cssValue, "width", lengthCtx);
+      if (resolved != null) translationX += resolved;
+      continue;
+    }
+
+    // 6. top → accumulate into translationY
+    if (cssProp === "top") {
+      const resolved = resolveLength(cssValue, "height", lengthCtx);
+      if (resolved != null) translationY += resolved;
+      continue;
+    }
+
+    // 7. text-align → horizAlign
+    if (cssProp === "text-align") {
+      const alignMap: Record<string, string> = { left: "left", center: "center", right: "right" };
+      const mapped = alignMap[cssValue];
+      if (mapped) {
+        props.push({ name: "horizAlign", value: mapped });
+      }
+      continue;
+    }
+
+    // 8. white-space / word-wrap / overflow-wrap → wrap boolean
+    if (cssProp === "white-space") {
+      props.push({ name: "wrap", value: cssValue === "normal" || cssValue === "pre-wrap" ? "true" : "false" });
+      continue;
+    }
+    if (cssProp === "word-wrap" || cssProp === "overflow-wrap") {
+      props.push({ name: "wrap", value: cssValue === "break-word" || cssValue === "anywhere" ? "true" : "false" });
+      continue;
+    }
+
+    // 9. font-weight → font via resolveFont
+    if (cssProp === "font-weight") {
+      const font = resolveFont(cssValue);
+      if (font) {
+        props.push({ name: "font", value: font });
+      }
+      continue;
+    }
+
+    // 10. font-family → ignored with no warning (Roku only has system fonts)
+    if (cssProp === "font-family") {
+      continue;
+    }
+
+    // 11. color → context-sensitive
+    if (cssProp === "color") {
+      if (nodeType === "Label") {
+        props.push({ name: "color", value: cssColorToRokuHexValue(cssValue) });
+      } else {
+        warnings.push(
+          createWarning(
+            WarningCode.CSS_CONTEXT_MISMATCH,
+            locationFromOffset(source, nodeOffset, filename),
+            { property: "color", nodeType, hint: "CSS 'color' only applies to Label (text) nodes." },
+          ),
+        );
+      }
+      continue;
+    }
+
+    // 12. background-color → context-sensitive
+    if (cssProp === "background-color") {
+      if (nodeType === "Rectangle") {
+        props.push({ name: "color", value: cssColorToRokuHexValue(cssValue) });
+      } else {
+        warnings.push(
+          createWarning(
+            WarningCode.CSS_CONTEXT_MISMATCH,
+            locationFromOffset(source, nodeOffset, filename),
+            { property: "background-color", nodeType, hint: "CSS 'background-color' only applies to Rectangle nodes." },
+          ),
+        );
+      }
+      continue;
+    }
+
+    // 13. Flex properties → store as metadata
+    if (FLEX_PROPERTIES.has(cssProp)) {
+      if (cssProp === "flex-wrap") {
+        warnings.push(
+          createWarning(
+            WarningCode.UNSUPPORTED_CSS_HINT,
+            locationFromOffset(source, nodeOffset, filename),
+            { property: "flex-wrap", hint: "Use explicit sizing, flex-wrap is not supported." },
+          ),
+        );
+      }
+      if (!flexStyles) flexStyles = {};
+      flexStyles[cssProp] = cssValue;
+      continue;
+    }
+
+    // 14. Unsupported with specific hints
+    const hint = UNSUPPORTED_CSS_HINTS[cssProp];
+    if (hint) {
+      warnings.push(
+        createWarning(
+          WarningCode.UNSUPPORTED_CSS_HINT,
+          locationFromOffset(source, nodeOffset, filename),
+          { property: cssProp, hint },
+        ),
+      );
+      continue;
+    }
+
+    // 15. Generic CSS_PROPERTY_MAP lookup
     const sgField = CSS_PROPERTY_MAP[cssProp];
     if (sgField === undefined) {
       warnings.push(
@@ -1504,8 +1766,20 @@ function parseInlineStyle(
     }
     if (sgField === null) continue;
 
-    props.push({ name: sgField, value: convertValue(sgField, cssValue) });
+    // Resolve numeric values via resolveLength
+    const axis = sgField === "width" || sgField === "letterSpacing" ? "width" : "height";
+    const resolved = resolveLength(cssValue, axis, lengthCtx);
+    if (resolved != null) {
+      props.push({ name: sgField, value: String(resolved) });
+    } else {
+      props.push({ name: sgField, value: convertValue(sgField, cssValue) });
+    }
   }
 
-  return props;
+  // Emit accumulated translation
+  if (translationX !== 0 || translationY !== 0) {
+    props.push({ name: "translation", value: `[${translationX}, ${translationY}]` });
+  }
+
+  return { properties: props, flexStyles };
 }

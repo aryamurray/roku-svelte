@@ -40,10 +40,10 @@ export function svelteRoku(options?: SvelteRokuConfig): Plugin {
       return null;
     },
 
-    transform(code, id) {
+    async transform(code, id) {
       if (!id.endsWith(".svelte")) return null;
 
-      const result = compileSvelteFile(id, resolvedConfig);
+      const result = await compileSvelteFile(id, resolvedConfig);
 
       for (const error of result.errors) {
         this.error({

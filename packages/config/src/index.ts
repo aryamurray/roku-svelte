@@ -3,7 +3,7 @@ import { CONFIG_DEFAULTS, RESOLUTION_MAP } from "./defaults.js";
 import type { SvelteRokuConfig, ResolvedConfig } from "./types.js";
 
 export type { SvelteRokuConfig, ResolvedConfig, RokuDeviceConfig } from "./types.js";
-export { CONFIG_DEFAULTS, RESOLUTION_MAP } from "./defaults.js";
+export { CONFIG_DEFAULTS, RESOLUTION_MAP, RESOLUTION_DIMENSIONS } from "./defaults.js";
 
 export function defineConfig(config: SvelteRokuConfig): SvelteRokuConfig {
   return config;

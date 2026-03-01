@@ -22,7 +22,8 @@
     "estree-walker": "^3.0.3",
     "magic-string": "^0.30.21",
     "pathe": "^2.0.3",
-    "svelte": "^5.0.0"
+    "svelte": "^5.0.0",
+    "yoga-layout": "^3.2.1"
   },
   "devDependencies": {
     "@repo/eslint-config": "*",

@@ -4,6 +4,7 @@ import { validate } from "./validation/validator.js";
 import { buildIR } from "./ir/builder.js";
 import { emitXML, emitItemComponentXML } from "./emitters/xml.js";
 import { emitBrightScript, emitItemComponentBrightScript } from "./emitters/brightscript.js";
+import { resolveLayout } from "./layout/index.js";
 import type {
   CompileError,
   CompileWarning,
@@ -16,6 +17,7 @@ export type { ManifestOptions } from "./emitters/manifest.js";
 
 export interface CompileOptions {
   isEntry?: boolean;
+  resolution?: { width: number; height: number };
 }
 
 export interface AdditionalComponent {
@@ -35,11 +37,11 @@ export interface CompileResult {
   requiredPolyfills?: string[];
 }
 
-export function compile(
+export async function compile(
   source: string,
   filename: string,
   options?: CompileOptions,
-): CompileResult {
+): Promise<CompileResult> {
   const errors: CompileError[] = [];
   const warnings: CompileWarning[] = [];
 
@@ -78,9 +80,23 @@ export function compile(
 
   const irResult = buildIR(ast, source, filename, {
     isEntry: options?.isEntry,
+    resolution: options?.resolution,
   });
   warnings.push(...irResult.warnings);
   errors.push(...irResult.errors);
+
+  if (errors.some((e) => e.fatal)) {
+    return { xml: "", brightscript: "", warnings, errors };
+  }
+
+  // Layout resolution pass (async for Yoga WASM)
+  const layoutConfig = {
+    rootWidth: options?.resolution?.width ?? 0,
+    rootHeight: options?.resolution?.height ?? 0,
+  };
+  const layoutResult = await resolveLayout(irResult.component, layoutConfig);
+  warnings.push(...layoutResult.warnings);
+  errors.push(...layoutResult.errors);
 
   if (errors.some((e) => e.fatal)) {
     return { xml: "", brightscript: "", warnings, errors };

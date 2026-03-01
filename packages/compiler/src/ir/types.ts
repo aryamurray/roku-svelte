@@ -23,6 +23,7 @@ export interface IRNode {
   children: IRNode[];
   textContent?: string;
   focusable?: boolean;
+  flexStyles?: Record<string, string>;
 }
 
 export interface IRArrayItemField {

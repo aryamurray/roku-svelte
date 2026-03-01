@@ -33,7 +33,7 @@ export const checkCommand = defineCommand({
       // Preprocess first to strip <roku>/<web> tags
       const preprocessed = preprocessor.markup({ content: source, filename: file });
       const isEntry = fullPath === config.entry;
-      const result = compile(preprocessed.code, filename, { isEntry });
+      const result = await compile(preprocessed.code, filename, { isEntry });
 
       if (result.errors.length > 0) {
         displayDiagnostics(result.errors, consola);

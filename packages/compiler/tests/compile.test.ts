@@ -11,12 +11,12 @@ const INVALID_DIR = path.join(__dirname, "fixtures", "invalid");
 // === v0.1 regression tests ===
 
 describe("compile - valid fixtures (v0.1)", () => {
-  it("compiles static-text", () => {
+  it("compiles static-text", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "static-text.svelte"),
       "utf-8",
     );
-    const result = compile(source, "static-text.svelte");
+    const result = await compile(source, "static-text.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain('<component name="static-text"');
@@ -28,12 +28,12 @@ describe("compile - valid fixtures (v0.1)", () => {
     expect(result.brightscript).not.toContain("findNode");
   });
 
-  it("compiles nested-elements", () => {
+  it("compiles nested-elements", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "nested-elements.svelte"),
       "utf-8",
     );
-    const result = compile(source, "nested-elements.svelte");
+    const result = await compile(source, "nested-elements.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("Group");
@@ -44,12 +44,12 @@ describe("compile - valid fixtures (v0.1)", () => {
     expect(result.brightscript).toContain("function init()");
   });
 
-  it("compiles image-poster", () => {
+  it("compiles image-poster", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "image-poster.svelte"),
       "utf-8",
     );
-    const result = compile(source, "image-poster.svelte");
+    const result = await compile(source, "image-poster.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("Poster");
@@ -58,12 +58,12 @@ describe("compile - valid fixtures (v0.1)", () => {
     expect(result.xml).toContain('height="281"');
   });
 
-  it("compiles styled-text", () => {
+  it("compiles styled-text", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "styled-text.svelte"),
       "utf-8",
     );
-    const result = compile(source, "styled-text.svelte");
+    const result = await compile(source, "styled-text.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("Label");
@@ -74,20 +74,20 @@ describe("compile - valid fixtures (v0.1)", () => {
 });
 
 describe("compile - isEntry option", () => {
-  it("defaults to extends Group", () => {
-    const result = compile("<text>Hello</text>", "App.svelte");
+  it("defaults to extends Group", async () => {
+    const result = await compile("<text>Hello</text>", "App.svelte");
     expect(result.xml).toContain('extends="Group"');
   });
 
-  it("extends Scene when isEntry is true", () => {
-    const result = compile("<text>Hello</text>", "App.svelte", {
+  it("extends Scene when isEntry is true", async () => {
+    const result = await compile("<text>Hello</text>", "App.svelte", {
       isEntry: true,
     });
     expect(result.xml).toContain('extends="Scene"');
   });
 
-  it("extends Group when isEntry is false", () => {
-    const result = compile("<text>Hello</text>", "App.svelte", {
+  it("extends Group when isEntry is false", async () => {
+    const result = await compile("<text>Hello</text>", "App.svelte", {
       isEntry: false,
     });
     expect(result.xml).toContain('extends="Group"');
@@ -95,8 +95,8 @@ describe("compile - isEntry option", () => {
 });
 
 describe("compile - static/dynamic prop split", () => {
-  it("puts static props in XML only, not BrightScript", () => {
-    const result = compile(
+  it("puts static props in XML only, not BrightScript", async () => {
+    const result = await compile(
       '<rectangle width="100" height="50" color="#ff0000" />',
       "Test.svelte",
     );
@@ -113,12 +113,12 @@ describe("compile - static/dynamic prop split", () => {
 });
 
 describe("compile - invalid fixtures (v0.1)", () => {
-  it("rejects async-function with fatal error", () => {
+  it("rejects async-function with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "async-function.svelte"),
       "utf-8",
     );
-    const result = compile(source, "async-function.svelte");
+    const result = await compile(source, "async-function.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.fatal)).toBe(true);
@@ -127,36 +127,36 @@ describe("compile - invalid fixtures (v0.1)", () => {
     expect(result.brightscript).toBe("");
   });
 
-  it("rejects timer-usage with fatal error", () => {
+  it("rejects timer-usage with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "timer-usage.svelte"),
       "utf-8",
     );
-    const result = compile(source, "timer-usage.svelte");
+    const result = await compile(source, "timer-usage.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "NO_TIMERS")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects dom-access with fatal error", () => {
+  it("rejects dom-access with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "dom-access.svelte"),
       "utf-8",
     );
-    const result = compile(source, "dom-access.svelte");
+    const result = await compile(source, "dom-access.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "NO_DOM")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects unknown-import with fatal error", () => {
+  it("rejects unknown-import with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "unknown-import.svelte"),
       "utf-8",
     );
-    const result = compile(source, "unknown-import.svelte");
+    const result = await compile(source, "unknown-import.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "UNKNOWN_IMPORT")).toBe(true);
@@ -168,12 +168,12 @@ describe("compile - invalid fixtures (v0.1)", () => {
 // === v0.2 integration tests ===
 
 describe("compile - v0.2 valid fixtures", () => {
-  it("compiles counter with state, events, binding", () => {
+  it("compiles counter with state, events, binding", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "counter.svelte"),
       "utf-8",
     );
-    const result = compile(source, "counter.svelte");
+    const result = await compile(source, "counter.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -195,12 +195,12 @@ describe("compile - v0.2 valid fixtures", () => {
     );
   });
 
-  it("compiles toggle with boolean state and visibility", () => {
+  it("compiles toggle with boolean state and visibility", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "toggle.svelte"),
       "utf-8",
     );
-    const result = compile(source, "toggle.svelte");
+    const result = await compile(source, "toggle.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("Rectangle");
@@ -210,12 +210,12 @@ describe("compile - v0.2 valid fixtures", () => {
     expect(result.brightscript).toContain("function toggle()");
   });
 
-  it("compiles mixed-text with interpolation", () => {
+  it("compiles mixed-text with interpolation", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "mixed-text.svelte"),
       "utf-8",
     );
-    const result = compile(source, "mixed-text.svelte");
+    const result = await compile(source, "mixed-text.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("Str(m.state.count).Trim()");
@@ -223,24 +223,24 @@ describe("compile - v0.2 valid fixtures", () => {
     expect(result.brightscript).toContain("+");
   });
 
-  it("compiles autofocus with setFocus", () => {
+  it("compiles autofocus with setFocus", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "autofocus.svelte"),
       "utf-8",
     );
-    const result = compile(source, "autofocus.svelte");
+    const result = await compile(source, "autofocus.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain('focusable="true"');
     expect(result.brightscript).toContain("setFocus(true)");
   });
 
-  it("compiles multi-state with multiple variables", () => {
+  it("compiles multi-state with multiple variables", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "multi-state.svelte"),
       "utf-8",
     );
-    const result = compile(source, "multi-state.svelte");
+    const result = await compile(source, "multi-state.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("count: 0");
@@ -250,12 +250,12 @@ describe("compile - v0.2 valid fixtures", () => {
 });
 
 describe("compile - v0.2 invalid fixtures", () => {
-  it("rejects complex-expression with fatal error", () => {
+  it("rejects complex-expression with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "complex-expression.svelte"),
       "utf-8",
     );
-    const result = compile(source, "complex-expression.svelte");
+    const result = await compile(source, "complex-expression.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(
@@ -264,24 +264,24 @@ describe("compile - v0.2 invalid fixtures", () => {
     expect(result.xml).toBe("");
   });
 
-  it("rejects inline-handler with fatal error", () => {
+  it("rejects inline-handler with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "inline-handler.svelte"),
       "utf-8",
     );
-    const result = compile(source, "inline-handler.svelte");
+    const result = await compile(source, "inline-handler.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "INLINE_HANDLER")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects complex-state-init with fatal error", () => {
+  it("rejects complex-state-init with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "complex-state-init.svelte"),
       "utf-8",
     );
-    const result = compile(source, "complex-state-init.svelte");
+    const result = await compile(source, "complex-state-init.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(
@@ -290,24 +290,24 @@ describe("compile - v0.2 invalid fixtures", () => {
     expect(result.xml).toBe("");
   });
 
-  it("rejects unknown-handler with fatal error", () => {
+  it("rejects unknown-handler with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "unknown-handler.svelte"),
       "utf-8",
     );
-    const result = compile(source, "unknown-handler.svelte");
+    const result = await compile(source, "unknown-handler.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "UNKNOWN_HANDLER")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects unsupported-handler body with fatal error", () => {
+  it("rejects unsupported-handler body with fatal error", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "unsupported-handler.svelte"),
       "utf-8",
     );
-    const result = compile(source, "unsupported-handler.svelte");
+    const result = await compile(source, "unsupported-handler.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(
@@ -318,9 +318,9 @@ describe("compile - v0.2 invalid fixtures", () => {
 });
 
 describe("compile - v0.2 edge cases", () => {
-  it("compiles component with state but no handlers or events", () => {
+  it("compiles component with state but no handlers or events", async () => {
     const source = '<script>let count = 0;</script><text>{count}</text>';
-    const result = compile(source, "StateOnly.svelte");
+    const result = await compile(source, "StateOnly.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("m.state = { count: 0, dirty: { count: true } }");
@@ -328,24 +328,24 @@ describe("compile - v0.2 edge cases", () => {
     expect(result.brightscript).not.toContain("onKeyEvent");
   });
 
-  it("compiles string state bound to text", () => {
+  it("compiles string state bound to text", async () => {
     const source = '<script>let name = "world";</script><text>{name}</text>';
-    const result = compile(source, "StringBind.svelte");
+    const result = await compile(source, "StringBind.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('"world"');
     expect(result.brightscript).toContain("m.state.name");
   });
 
-  it("compiles negative number state init", () => {
+  it("compiles negative number state init", async () => {
     const source = '<script>let count = -5;</script><text>{count}</text>';
-    const result = compile(source, "Negative.svelte");
+    const result = await compile(source, "Negative.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("count: -5");
   });
 
-  it("compiles component with multiple handlers", () => {
+  it("compiles component with multiple handlers", async () => {
     const source = `<script>
   let count = 0;
   function increment() { count++; }
@@ -353,7 +353,7 @@ describe("compile - v0.2 edge cases", () => {
 </script>
 <text on:select={increment} focusable>{count}</text>
 <text on:select={decrement} focusable>-</text>`;
-    const result = compile(source, "MultiHandler.svelte");
+    const result = await compile(source, "MultiHandler.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("function increment()");
@@ -362,17 +362,17 @@ describe("compile - v0.2 edge cases", () => {
     expect(result.brightscript).toContain("m.state.count - 1");
   });
 
-  it("compiles boolean false state", () => {
+  it("compiles boolean false state", async () => {
     const source =
       '<script>let hidden = false; function toggle() { hidden = !hidden; }</script><rectangle visible={hidden} on:select={toggle} focusable />';
-    const result = compile(source, "FalseState.svelte");
+    const result = await compile(source, "FalseState.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("hidden: false");
   });
 
-  it("v0.1 static-only produces v0.6 output (no state)", () => {
-    const result = compile("<text>Hello</text>", "Static.svelte");
+  it("v0.1 static-only produces v0.6 output (no state)", async () => {
+    const result = await compile("<text>Hello</text>", "Static.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("v0.6");
@@ -384,12 +384,12 @@ describe("compile - v0.2 edge cases", () => {
 // === v0.3 integration tests — lists ===
 
 describe("compile - v0.3 valid list fixtures", () => {
-  it("compiles simple-list with single field", () => {
+  it("compiles simple-list with single field", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "simple-list.svelte"),
       "utf-8",
     );
-    const result = compile(source, "simple-list.svelte");
+    const result = await compile(source, "simple-list.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -414,12 +414,12 @@ describe("compile - v0.3 valid list fixtures", () => {
     expect(ic.brightscript).toContain("itemContent.title");
   });
 
-  it("compiles multi-field-list with title + year", () => {
+  it("compiles multi-field-list with title + year", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "multi-field-list.svelte"),
       "utf-8",
     );
-    const result = compile(source, "multi-field-list.svelte");
+    const result = await compile(source, "multi-field-list.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -441,12 +441,12 @@ describe("compile - v0.3 valid list fixtures", () => {
     expect(ic.xml).toContain('height="100"');
   });
 
-  it("compiles list-with-props with itemSize", () => {
+  it("compiles list-with-props with itemSize", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "list-with-props.svelte"),
       "utf-8",
     );
-    const result = compile(source, "list-with-props.svelte");
+    const result = await compile(source, "list-with-props.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain('itemSize="[1920, 150]"');
@@ -455,12 +455,12 @@ describe("compile - v0.3 valid list fixtures", () => {
     expect(result.additionalComponents![0]!.xml).toContain('height="150"');
   });
 
-  it("compiles list-mixed-text with string concatenation", () => {
+  it("compiles list-mixed-text with string concatenation", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "list-mixed-text.svelte"),
       "utf-8",
     );
-    const result = compile(source, "list-mixed-text.svelte");
+    const result = await compile(source, "list-mixed-text.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.additionalComponents).toHaveLength(1);
@@ -472,60 +472,60 @@ describe("compile - v0.3 valid list fixtures", () => {
 });
 
 describe("compile - v0.3 invalid fixtures", () => {
-  it("rejects each-outside-list with EACH_OUTSIDE_LIST", () => {
+  it("rejects each-outside-list with EACH_OUTSIDE_LIST", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "each-outside-list.svelte"),
       "utf-8",
     );
-    const result = compile(source, "each-outside-list.svelte");
+    const result = await compile(source, "each-outside-list.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "EACH_OUTSIDE_LIST")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects each-with-index with EACH_WITH_INDEX", () => {
+  it("rejects each-with-index with EACH_WITH_INDEX", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "each-with-index.svelte"),
       "utf-8",
     );
-    const result = compile(source, "each-with-index.svelte");
+    const result = await compile(source, "each-with-index.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "EACH_WITH_INDEX")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects each-with-key with EACH_WITH_KEY", () => {
+  it("rejects each-with-key with EACH_WITH_KEY", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "each-with-key.svelte"),
       "utf-8",
     );
-    const result = compile(source, "each-with-key.svelte");
+    const result = await compile(source, "each-with-key.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "EACH_WITH_KEY")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects each-bad-array with UNSUPPORTED_STATE_INIT", () => {
+  it("rejects each-bad-array with UNSUPPORTED_STATE_INIT", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "each-bad-array.svelte"),
       "utf-8",
     );
-    const result = compile(source, "each-bad-array.svelte");
+    const result = await compile(source, "each-bad-array.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "UNSUPPORTED_STATE_INIT")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects each-outer-state with EACH_OUTER_STATE_REF", () => {
+  it("rejects each-outer-state with EACH_OUTER_STATE_REF", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "each-outer-state.svelte"),
       "utf-8",
     );
-    const result = compile(source, "each-outer-state.svelte");
+    const result = await compile(source, "each-outer-state.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "EACH_OUTER_STATE_REF")).toBe(true);
@@ -536,12 +536,12 @@ describe("compile - v0.3 invalid fixtures", () => {
 // === v0.4 integration tests — fetch ===
 
 describe("compile - v0.4 valid fetch fixtures", () => {
-  it("compiles fetch-list: main XML/BRS + additionalComponents has ItemComponent only", () => {
+  it("compiles fetch-list: main XML/BRS + additionalComponents has ItemComponent only", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "fetch-list.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-list.svelte");
+    const result = await compile(source, "fetch-list.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -579,12 +579,12 @@ describe("compile - v0.4 valid fetch fixtures", () => {
     expect(result.requiresRuntime).toBe(true);
   });
 
-  it("compiles fetch-list-simple with single field", () => {
+  it("compiles fetch-list-simple with single field", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "fetch-list-simple.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-list-simple.svelte");
+    const result = await compile(source, "fetch-list-simple.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("items: []");
@@ -594,12 +594,12 @@ describe("compile - v0.4 valid fetch fixtures", () => {
     expect(result.requiresRuntime).toBe(true);
   });
 
-  it("compiles mixed-static-fetch with static + fetch state", () => {
+  it("compiles mixed-static-fetch with static + fetch state", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "mixed-static-fetch.svelte"),
       "utf-8",
     );
-    const result = compile(source, "mixed-static-fetch.svelte");
+    const result = await compile(source, "mixed-static-fetch.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -621,24 +621,24 @@ describe("compile - v0.4 valid fetch fixtures", () => {
 });
 
 describe("compile - v0.4 valid new fixtures", () => {
-  it("compiles fetch-dynamic-url without errors", () => {
+  it("compiles fetch-dynamic-url without errors", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "fetch-dynamic-url.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-dynamic-url.svelte");
+    const result = await compile(source, "fetch-dynamic-url.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.requiresRuntime).toBe(true);
     expect(result.brightscript).toContain("fetch(someVar, {})");
   });
 
-  it("compiles fetch-with-post without errors", () => {
+  it("compiles fetch-with-post without errors", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "fetch-with-post.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-with-post.svelte");
+    const result = await compile(source, "fetch-with-post.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.requiresRuntime).toBe(true);
@@ -648,36 +648,36 @@ describe("compile - v0.4 valid new fixtures", () => {
 });
 
 describe("compile - v0.4 invalid fetch fixtures", () => {
-  it("rejects fetch-in-handler with NO_FETCH", () => {
+  it("rejects fetch-in-handler with NO_FETCH", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "fetch-in-handler.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-in-handler.svelte");
+    const result = await compile(source, "fetch-in-handler.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "NO_FETCH")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("fetch-in-template now compiles (transpiler handles function calls)", () => {
+  it("fetch-in-template now compiles (transpiler handles function calls)", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "fetch-in-template.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-in-template.svelte");
+    const result = await compile(source, "fetch-in-template.svelte");
 
     // In v0.5, fetch() in template is transpiled as a regular function call
     // (the no-fetch validation only checks <script>, not template)
     expect(result.errors).toEqual([]);
   });
 
-  it("fetch-usage in const position still errors (NO_FETCH via validation)", () => {
+  it("fetch-usage in const position still errors (NO_FETCH via validation)", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "fetch-usage.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-usage.svelte");
+    const result = await compile(source, "fetch-usage.svelte");
 
     // const data = fetch('/api') — const is not reactive, so builder skips it
     // but validation catches fetch in non-let-init context
@@ -694,12 +694,12 @@ describe("compile - v0.4 invalid fetch fixtures", () => {
 });
 
 describe("compile - v0.4 regression", () => {
-  it("v0.1 static fixtures still compile correctly", () => {
+  it("v0.1 static fixtures still compile correctly", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "static-text.svelte"),
       "utf-8",
     );
-    const result = compile(source, "static-text.svelte");
+    const result = await compile(source, "static-text.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("Label");
@@ -707,12 +707,12 @@ describe("compile - v0.4 regression", () => {
     expect(result.additionalComponents).toBeUndefined();
   });
 
-  it("v0.2 counter fixture still compiles correctly", () => {
+  it("v0.2 counter fixture still compiles correctly", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "counter.svelte"),
       "utf-8",
     );
-    const result = compile(source, "counter.svelte");
+    const result = await compile(source, "counter.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("m.state = { count: 0, dirty: { count: true } }");
@@ -720,20 +720,20 @@ describe("compile - v0.4 regression", () => {
     expect(result.additionalComponents).toBeUndefined();
   });
 
-  it("v0.3 list fixtures still compile correctly", () => {
+  it("v0.3 list fixtures still compile correctly", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "simple-list.svelte"),
       "utf-8",
     );
-    const result = compile(source, "simple-list.svelte");
+    const result = await compile(source, "simple-list.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("MarkupList");
     expect(result.additionalComponents).toHaveLength(1);
   });
 
-  it("non-list component has no additionalComponents", () => {
-    const result = compile(
+  it("non-list component has no additionalComponents", async () => {
+    const result = await compile(
       '<script>let count = 0;</script><text>{count}</text>',
       "NoList.svelte",
     );
@@ -746,12 +746,12 @@ describe("compile - v0.4 regression", () => {
 // === v0.5 integration tests — stdlib transpilation ===
 
 describe("compile - v0.5 valid stdlib fixtures", () => {
-  it("compiles stdlib-array-methods with push/pop/length", () => {
+  it("compiles stdlib-array-methods with push/pop/length", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "stdlib-array-methods.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-array-methods.svelte");
+    const result = await compile(source, "stdlib-array-methods.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("v0.6");
@@ -764,12 +764,12 @@ describe("compile - v0.5 valid stdlib fixtures", () => {
     expect(result.brightscript).toContain(".Count()");
   });
 
-  it("compiles stdlib-string-methods with toUpperCase/trim", () => {
+  it("compiles stdlib-string-methods with toUpperCase/trim", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "stdlib-string-methods.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-string-methods.svelte");
+    const result = await compile(source, "stdlib-string-methods.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -779,12 +779,12 @@ describe("compile - v0.5 valid stdlib fixtures", () => {
     expect(result.brightscript).toContain(".Trim()");
   });
 
-  it("compiles stdlib-math with Math.floor", () => {
+  it("compiles stdlib-math with Math.floor", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "stdlib-math.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-math.svelte");
+    const result = await compile(source, "stdlib-math.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -792,12 +792,12 @@ describe("compile - v0.5 valid stdlib fixtures", () => {
     expect(result.brightscript).toContain("Int(");
   });
 
-  it("compiles stdlib-json with JSON.stringify", () => {
+  it("compiles stdlib-json with JSON.stringify", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "stdlib-json.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-json.svelte");
+    const result = await compile(source, "stdlib-json.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -805,12 +805,12 @@ describe("compile - v0.5 valid stdlib fixtures", () => {
     expect(result.brightscript).toContain("FormatJSON(");
   });
 
-  it("compiles stdlib-console with console.log", () => {
+  it("compiles stdlib-console with console.log", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "stdlib-console.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-console.svelte");
+    const result = await compile(source, "stdlib-console.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -818,12 +818,12 @@ describe("compile - v0.5 valid stdlib fixtures", () => {
     expect(result.brightscript).toContain("print ");
   });
 
-  it("compiles stdlib-filter-map with .filter() inline expansion", () => {
+  it("compiles stdlib-filter-map with .filter() inline expansion", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "stdlib-filter-map.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-filter-map.svelte");
+    const result = await compile(source, "stdlib-filter-map.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -834,12 +834,12 @@ describe("compile - v0.5 valid stdlib fixtures", () => {
     expect(result.brightscript).toContain("end for");
   });
 
-  it("compiles stdlib-template-expr with expressions in templates", () => {
+  it("compiles stdlib-template-expr with expressions in templates", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "stdlib-template-expr.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-template-expr.svelte");
+    const result = await compile(source, "stdlib-template-expr.svelte");
 
     expect(result.errors).toEqual([]);
 
@@ -851,24 +851,24 @@ describe("compile - v0.5 valid stdlib fixtures", () => {
 });
 
 describe("compile - v0.5 invalid stdlib fixtures", () => {
-  it("rejects stdlib-unsupported-method with UNSUPPORTED_STDLIB_METHOD", () => {
+  it("rejects stdlib-unsupported-method with UNSUPPORTED_STDLIB_METHOD", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "stdlib-unsupported-method.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-unsupported-method.svelte");
+    const result = await compile(source, "stdlib-unsupported-method.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "UNSUPPORTED_STDLIB_METHOD")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects stdlib-functional-in-template with FUNCTIONAL_IN_TEMPLATE", () => {
+  it("rejects stdlib-functional-in-template with FUNCTIONAL_IN_TEMPLATE", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "stdlib-functional-in-template.svelte"),
       "utf-8",
     );
-    const result = compile(source, "stdlib-functional-in-template.svelte");
+    const result = await compile(source, "stdlib-functional-in-template.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "FUNCTIONAL_IN_TEMPLATE")).toBe(true);
@@ -877,47 +877,47 @@ describe("compile - v0.5 invalid stdlib fixtures", () => {
 });
 
 describe("compile - v0.5 edge cases", () => {
-  it("compiles binary expression in template: {count + 1}", () => {
+  it("compiles binary expression in template: {count + 1}", async () => {
     const source = '<script>let count = 0;</script><text>{count + 1}</text>';
-    const result = compile(source, "BinaryExpr.svelte");
+    const result = await compile(source, "BinaryExpr.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("(m.state.count + 1)");
   });
 
-  it("compiles string method in template: {name.toUpperCase()}", () => {
+  it("compiles string method in template: {name.toUpperCase()}", async () => {
     const source = '<script>let name = "hello";</script><text>{name.toUpperCase()}</text>';
-    const result = compile(source, "StringMethod.svelte");
+    const result = await compile(source, "StringMethod.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("UCase(m.state.name)");
   });
 
-  it("compiles Math in template: {Math.floor(score)}", () => {
+  it("compiles Math in template: {Math.floor(score)}", async () => {
     const source = '<script>let score = 3.14;</script><text>{Math.floor(score)}</text>';
-    const result = compile(source, "MathTemplate.svelte");
+    const result = await compile(source, "MathTemplate.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("Int(m.state.score)");
   });
 
-  it("compiles .length in template for array state", () => {
+  it("compiles .length in template for array state", async () => {
     const source = '<script>let items = [{ n: "a" }];</script><text>{items.length}</text>';
-    const result = compile(source, "ArrayLength.svelte");
+    const result = await compile(source, "ArrayLength.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("m.state.items.Count()");
   });
 
-  it("compiles .length in template for string state", () => {
+  it("compiles .length in template for string state", async () => {
     const source = '<script>let name = "hello";</script><text>{name.length}</text>';
-    const result = compile(source, "StringLength.svelte");
+    const result = await compile(source, "StringLength.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("Len(m.state.name)");
   });
 
-  it("compiles multiple stdlib calls in one handler", () => {
+  it("compiles multiple stdlib calls in one handler", async () => {
     const source = `<script>
   let items = [{ n: "a" }];
   let count = 0;
@@ -928,7 +928,7 @@ describe("compile - v0.5 edge cases", () => {
   }
 </script>
 <text on:select={process} focusable>{count}</text>`;
-    const result = compile(source, "MultiStdlib.svelte");
+    const result = await compile(source, "MultiStdlib.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain(".Push(");
@@ -936,27 +936,27 @@ describe("compile - v0.5 edge cases", () => {
     expect(result.brightscript).toContain("print ");
   });
 
-  it("sets requiresStdlib when runtime helpers are used", () => {
+  it("sets requiresStdlib when runtime helpers are used", async () => {
     const source = '<script>let items = [{ n: "a" }]; let idx = 0; function test() { idx = items.indexOf("a"); }</script><text on:select={test} focusable>{idx}</text>';
-    const result = compile(source, "StdlibFlag.svelte");
+    const result = await compile(source, "StdlibFlag.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.requiresStdlib).toBe(true);
     expect(result.xml).toContain("Stdlib.brs");
   });
 
-  it("does not set requiresStdlib for rename/wrap-only methods", () => {
+  it("does not set requiresStdlib for rename/wrap-only methods", async () => {
     const source = '<script>let name = "hello"; function test() { name = name.toUpperCase(); }</script><text on:select={test} focusable>{name}</text>';
-    const result = compile(source, "WrapOnly.svelte");
+    const result = await compile(source, "WrapOnly.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.requiresStdlib).toBeUndefined();
     expect(result.xml).not.toContain("Stdlib.brs");
   });
 
-  it("compiles console.debug as no-op (strips it)", () => {
+  it("compiles console.debug as no-op (strips it)", async () => {
     const source = '<script>let count = 0; function test() { count++; console.debug("test"); }</script><text on:select={test} focusable>{count}</text>';
-    const result = compile(source, "DebugStrip.svelte");
+    const result = await compile(source, "DebugStrip.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).not.toContain("debug");
@@ -966,48 +966,48 @@ describe("compile - v0.5 edge cases", () => {
 });
 
 describe("compile - v0.5 regression", () => {
-  it("v0.1 static fixtures still compile correctly", () => {
+  it("v0.1 static fixtures still compile correctly", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "static-text.svelte"),
       "utf-8",
     );
-    const result = compile(source, "static-text.svelte");
+    const result = await compile(source, "static-text.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("Label");
     expect(result.xml).toContain('text="Hello Roku"');
   });
 
-  it("v0.2 counter fixture still compiles correctly", () => {
+  it("v0.2 counter fixture still compiles correctly", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "counter.svelte"),
       "utf-8",
     );
-    const result = compile(source, "counter.svelte");
+    const result = await compile(source, "counter.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("m.state.count + 1");
     expect(result.brightscript).toContain("function increment()");
   });
 
-  it("v0.3 list fixtures still compile correctly", () => {
+  it("v0.3 list fixtures still compile correctly", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "simple-list.svelte"),
       "utf-8",
     );
-    const result = compile(source, "simple-list.svelte");
+    const result = await compile(source, "simple-list.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("MarkupList");
     expect(result.additionalComponents).toHaveLength(1);
   });
 
-  it("v0.4 fetch fixtures still compile correctly", () => {
+  it("v0.4 fetch fixtures still compile correctly", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "fetch-list.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-list.svelte");
+    const result = await compile(source, "fetch-list.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.requiresRuntime).toBe(true);
@@ -1016,7 +1016,7 @@ describe("compile - v0.5 regression", () => {
 });
 
 describe("emitManifest", () => {
-  it("generates default manifest", () => {
+  it("generates default manifest", async () => {
     const manifest = emitManifest();
     expect(manifest).toContain("title=Dev Channel");
     expect(manifest).toContain("major_version=1");
@@ -1025,7 +1025,7 @@ describe("emitManifest", () => {
     expect(manifest).toContain("ui_resolutions=fhd");
   });
 
-  it("accepts custom options", () => {
+  it("accepts custom options", async () => {
     const manifest = emitManifest({
       title: "My Channel",
       majorVersion: 2,
@@ -1044,12 +1044,12 @@ describe("emitManifest", () => {
 // === v0.6 integration tests — browser API polyfills ===
 
 describe("compile - v0.6 valid browser fixtures", () => {
-  it("compiles browser-timers with setTimeout/setInterval polyfills", () => {
+  it("compiles browser-timers with setTimeout/setInterval polyfills", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-timers.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-timers.svelte");
+    const result = await compile(source, "browser-timers.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("SvelteRoku_setTimeout");
@@ -1058,12 +1058,12 @@ describe("compile - v0.6 valid browser fixtures", () => {
     expect(result.xml).toContain("Timers.brs");
   });
 
-  it("compiles browser-timer-inline with callback extraction", () => {
+  it("compiles browser-timer-inline with callback extraction", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-timer-inline.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-timer-inline.svelte");
+    const result = await compile(source, "browser-timer-inline.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('SvelteRoku_setTimeout("__timer_cb_0"');
@@ -1072,12 +1072,12 @@ describe("compile - v0.6 valid browser fixtures", () => {
     expect(result.requiredPolyfills).toContain("Timers");
   });
 
-  it("compiles browser-storage with localStorage polyfill", () => {
+  it("compiles browser-storage with localStorage polyfill", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-storage.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-storage.svelte");
+    const result = await compile(source, "browser-storage.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("SvelteRoku_storageSet");
@@ -1086,12 +1086,12 @@ describe("compile - v0.6 valid browser fixtures", () => {
     expect(result.xml).toContain("Storage.brs");
   });
 
-  it("compiles browser-date with Date.now polyfill", () => {
+  it("compiles browser-date with Date.now polyfill", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-date.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-date.svelte");
+    const result = await compile(source, "browser-date.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("SvelteRoku_dateNowMs");
@@ -1099,34 +1099,34 @@ describe("compile - v0.6 valid browser fixtures", () => {
     expect(result.xml).toContain("DatePolyfill.brs");
   });
 
-  it("compiles browser-typeof with constant folding", () => {
+  it("compiles browser-typeof with constant folding", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-typeof.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-typeof.svelte");
+    const result = await compile(source, "browser-typeof.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('"object"');
   });
 
-  it("compiles browser-navigator with userAgent inline", () => {
+  it("compiles browser-navigator with userAgent inline", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-navigator.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-navigator.svelte");
+    const result = await compile(source, "browser-navigator.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('CreateObject("roDeviceInfo").GetModel()');
   });
 
-  it("compiles browser-base64 with btoa polyfill", () => {
+  it("compiles browser-base64 with btoa polyfill", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-base64.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-base64.svelte");
+    const result = await compile(source, "browser-base64.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("SvelteRoku_btoa");
@@ -1134,91 +1134,91 @@ describe("compile - v0.6 valid browser fixtures", () => {
     expect(result.xml).toContain("Base64.brs");
   });
 
-  it("compiles browser-url with window.location constants", () => {
+  it("compiles browser-url with window.location constants", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-url.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-url.svelte");
+    const result = await compile(source, "browser-url.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('""');
   });
 
-  it("compiles browser-queuemicrotask with Timers polyfill", () => {
+  it("compiles browser-queuemicrotask with Timers polyfill", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-queuemicrotask.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-queuemicrotask.svelte");
+    const result = await compile(source, "browser-queuemicrotask.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("SvelteRoku_queueMicrotask");
     expect(result.requiredPolyfills).toContain("Timers");
   });
 
-  it("compiles browser-event-target without errors", () => {
+  it("compiles browser-event-target without errors", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-event-target.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-event-target.svelte");
+    const result = await compile(source, "browser-event-target.svelte");
 
     expect(result.errors).toEqual([]);
   });
 
-  it("compiles browser-abort without errors", () => {
+  it("compiles browser-abort without errors", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-abort.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-abort.svelte");
+    const result = await compile(source, "browser-abort.svelte");
 
     expect(result.errors).toEqual([]);
   });
 
-  it("compiles browser-collections without errors", () => {
+  it("compiles browser-collections without errors", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "browser-collections.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-collections.svelte");
+    const result = await compile(source, "browser-collections.svelte");
 
     expect(result.errors).toEqual([]);
   });
 });
 
 describe("compile - v0.6 invalid browser fixtures", () => {
-  it("rejects browser-workers with NO_WORKERS", () => {
+  it("rejects browser-workers with NO_WORKERS", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "browser-workers.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-workers.svelte");
+    const result = await compile(source, "browser-workers.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "NO_WORKERS")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects browser-raf with NO_TIMERS", () => {
+  it("rejects browser-raf with NO_TIMERS", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "browser-raf.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-raf.svelte");
+    const result = await compile(source, "browser-raf.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "NO_TIMERS")).toBe(true);
     expect(result.xml).toBe("");
   });
 
-  it("rejects browser-document with NO_DOM", () => {
+  it("rejects browser-document with NO_DOM", async () => {
     const source = fs.readFileSync(
       path.join(INVALID_DIR, "browser-document.svelte"),
       "utf-8",
     );
-    const result = compile(source, "browser-document.svelte");
+    const result = await compile(source, "browser-document.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "NO_DOM")).toBe(true);
@@ -1227,27 +1227,27 @@ describe("compile - v0.6 invalid browser fixtures", () => {
 });
 
 describe("compile - v0.6 edge cases", () => {
-  it("compiles typeof window !== 'undefined' ternary with constant folding", () => {
+  it("compiles typeof window !== 'undefined' ternary with constant folding", async () => {
     const source = '<script>let count = 0; function check() { count = typeof window !== "undefined" ? 1 : 0; }</script><text on:select={check} focusable>{count}</text>';
-    const result = compile(source, "TypeofGuard.svelte");
+    const result = await compile(source, "TypeofGuard.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('"object"');
     expect(result.brightscript).toContain("SvelteRoku_iif");
   });
 
-  it("compiles Date.now() in handler", () => {
+  it("compiles Date.now() in handler", async () => {
     const source = '<script>let ts = 0; function update() { ts = Date.now(); }</script><text on:select={update} focusable>{ts}</text>';
-    const result = compile(source, "DateNow.svelte");
+    const result = await compile(source, "DateNow.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("SvelteRoku_dateNowMs");
     expect(result.requiredPolyfills).toContain("DatePolyfill");
   });
 
-  it("compiles localStorage in handler", () => {
+  it("compiles localStorage in handler", async () => {
     const source = '<script>let name = ""; function save() { localStorage.setItem("name", name); } function load() { name = localStorage.getItem("name"); }</script><text on:select={save} focusable>{name}</text>';
-    const result = compile(source, "Storage.svelte");
+    const result = await compile(source, "Storage.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("SvelteRoku_storageSet");
@@ -1256,35 +1256,35 @@ describe("compile - v0.6 edge cases", () => {
     expect(result.xml).toContain("Storage.brs");
   });
 
-  it("compiles btoa() in handler", () => {
+  it("compiles btoa() in handler", async () => {
     const source = '<script>let encoded = ""; function encode() { encoded = btoa("hello"); }</script><text on:select={encode} focusable>{encoded}</text>';
-    const result = compile(source, "Base64.svelte");
+    const result = await compile(source, "Base64.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('SvelteRoku_btoa("hello")');
     expect(result.requiredPolyfills).toContain("Base64");
   });
 
-  it("compiles navigator.userAgent in handler", () => {
+  it("compiles navigator.userAgent in handler", async () => {
     const source = '<script>let ua = ""; function detect() { ua = navigator.userAgent; }</script><text on:select={detect} focusable>{ua}</text>';
-    const result = compile(source, "NavUA.svelte");
+    const result = await compile(source, "NavUA.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('CreateObject("roDeviceInfo").GetModel()');
     expect(result.requiredPolyfills ?? []).not.toContain("Navigator");
   });
 
-  it("compiles window.innerWidth in handler", () => {
+  it("compiles window.innerWidth in handler", async () => {
     const source = '<script>let w = 0; function measure() { w = window.innerWidth; }</script><text on:select={measure} focusable>{w}</text>';
-    const result = compile(source, "WinWidth.svelte");
+    const result = await compile(source, "WinWidth.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain('CreateObject("roDeviceInfo").GetDisplaySize().w');
   });
 
-  it("compiles multiple polyfills in one component", () => {
+  it("compiles multiple polyfills in one component", async () => {
     const source = '<script>let ts = 0; let encoded = ""; function test() { ts = Date.now(); encoded = btoa("hello"); localStorage.setItem("ts", ts); }</script><text on:select={test} focusable>{ts}</text>';
-    const result = compile(source, "MultiPolyfill.svelte");
+    const result = await compile(source, "MultiPolyfill.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.requiredPolyfills).toContain("DatePolyfill");
@@ -1295,9 +1295,9 @@ describe("compile - v0.6 edge cases", () => {
     expect(result.xml).toContain("Storage.brs");
   });
 
-  it("rejects Worker constructor still blocked", () => {
+  it("rejects Worker constructor still blocked", async () => {
     const source = '<script>const w = new Worker("w.js");</script><text>test</text>';
-    const result = compile(source, "WorkerBlocked.svelte");
+    const result = await compile(source, "WorkerBlocked.svelte");
 
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.code === "NO_WORKERS")).toBe(true);
@@ -1305,41 +1305,41 @@ describe("compile - v0.6 edge cases", () => {
 });
 
 describe("compile - v0.6 regression", () => {
-  it("v0.1 static fixtures still compile", () => {
+  it("v0.1 static fixtures still compile", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "static-text.svelte"),
       "utf-8",
     );
-    const result = compile(source, "static-text.svelte");
+    const result = await compile(source, "static-text.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.xml).toContain("Label");
   });
 
-  it("v0.2 counter still compiles", () => {
+  it("v0.2 counter still compiles", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "counter.svelte"),
       "utf-8",
     );
-    const result = compile(source, "counter.svelte");
+    const result = await compile(source, "counter.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.brightscript).toContain("m.state.count + 1");
   });
 
-  it("v0.4 fetch still compiles", () => {
+  it("v0.4 fetch still compiles", async () => {
     const source = fs.readFileSync(
       path.join(VALID_DIR, "fetch-list.svelte"),
       "utf-8",
     );
-    const result = compile(source, "fetch-list.svelte");
+    const result = await compile(source, "fetch-list.svelte");
 
     expect(result.errors).toEqual([]);
     expect(result.requiresRuntime).toBe(true);
   });
 
-  it("version string updated", () => {
-    const result = compile('<text>Hello</text>', "Test.svelte");
+  it("version string updated", async () => {
+    const result = await compile('<text>Hello</text>', "Test.svelte");
     expect(result.brightscript).toContain("v0.6");
   });
 });
