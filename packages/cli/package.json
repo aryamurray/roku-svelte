@@ -14,6 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@svelte-roku/compiler": "*",
     "@svelte-roku/config": "*",
     "@svelte-roku/preprocessor": "*",

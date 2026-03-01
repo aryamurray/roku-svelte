@@ -114,11 +114,21 @@ export interface IRItemComponent {
   itemSize?: [number, number];
 }
 
+export interface AssetReference {
+  sourcePath: string;
+  destPath: string;
+  pkgPath: string;
+  transform?: "rasterize";
+  rasterizeWidth?: number;
+  rasterizeHeight?: number;
+}
+
 export interface IRComponent {
   name: string;
   extends: string;
   children: IRNode[];
   scriptUri: string;
+  assets?: AssetReference[];
   state?: IRStateVariable[];
   handlers?: IRHandler[];
   bindings?: IRBinding[];

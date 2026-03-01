@@ -4,7 +4,7 @@ import fg from "fast-glob";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { createRequire } from "module";
 import { join, basename, dirname, normalize } from "pathe";
-import { compile, emitManifest } from "@svelte-roku/compiler";
+import { compile, emitManifest, processAssets, type AssetReference } from "@svelte-roku/compiler";
 import { RUNTIME_FILES } from "@svelte-roku/runtime";
 import { svelteRokuPreprocess } from "@svelte-roku/preprocessor";
 import { loadCLIConfig } from "../utils/config.js";
@@ -42,6 +42,7 @@ export const buildCommand = defineCommand({
     mkdirSync(componentsDir, { recursive: true });
 
     let hasErrors = false;
+    const allAssets: AssetReference[] = [];
 
     for (const file of files) {
       const fullPath = join(config.root, file);
@@ -50,7 +51,7 @@ export const buildCommand = defineCommand({
 
       const preprocessed = preprocessor.markup({ content: source, filename: file });
       const isEntry = normalize(fullPath) === normalize(config.entry);
-      const result = await compile(preprocessed.code, filename, { isEntry });
+      const result = await compile(preprocessed.code, filename, { isEntry, filePath: fullPath });
 
       if (result.errors.length > 0) {
         displayDiagnostics(result.errors, consola);
@@ -61,6 +62,8 @@ export const buildCommand = defineCommand({
       if (result.warnings.length > 0) {
         displayDiagnostics(result.warnings, consola);
       }
+
+      allAssets.push(...result.assets);
 
       writeFileSync(join(componentsDir, `${filename}.xml`), result.xml);
       writeFileSync(join(componentsDir, `${filename}.brs`), result.brightscript);
@@ -97,6 +100,18 @@ export const buildCommand = defineCommand({
 
     // Copy runtime files
     copyRuntimeFiles(config.outDir);
+
+    // Process asset references (copy images, rasterize SVGs)
+    if (allAssets.length > 0) {
+      const assetResult = await processAssets(allAssets, config.outDir);
+      const total = assetResult.copied + assetResult.rasterized;
+      if (total > 0) {
+        consola.info(`Copied ${total} asset(s)${assetResult.rasterized > 0 ? ` (${assetResult.rasterized} rasterized)` : ""}`);
+      }
+      for (const err of assetResult.errors) {
+        consola.warn(err);
+      }
+    }
 
     // Create zip via roku-deploy
     try {

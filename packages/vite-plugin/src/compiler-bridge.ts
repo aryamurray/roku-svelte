@@ -11,7 +11,7 @@ export async function compileSvelteFile(
   const filename = basename(filePath, ".svelte");
   const isEntry = filePath === config.entry;
 
-  const options: CompileOptions = { isEntry };
+  const options: CompileOptions = { isEntry, filePath };
   const result = await compile(source, filename, options);
 
   if (result.errors.length === 0) {

@@ -25,6 +25,9 @@
     "svelte": "^5.0.0",
     "yoga-layout": "^3.2.1"
   },
+  "optionalDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  },
   "devDependencies": {
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",

@@ -174,6 +174,12 @@ export const ERROR_MESSAGES: Record<string, ErrorDefinition> = {
     docsUrl: `${DOCS_BASE}/flex-unknown-size`,
     fatal: true,
   },
+  [ErrorCode.UNSUPPORTED_ASSET_FORMAT]: {
+    message: "Roku does not support {extension} fonts. Convert to TTF or OTF.",
+    hint: "Web font formats like WOFF/WOFF2 are not supported on Roku. Use TTF or OTF instead.",
+    docsUrl: `${DOCS_BASE}/unsupported-asset-format`,
+    fatal: true,
+  },
 };
 
 export const WARNING_MESSAGES: Record<string, WarningDefinition> = {
@@ -200,5 +206,13 @@ export const WARNING_MESSAGES: Record<string, WarningDefinition> = {
   [WarningCode.CSS_CONTEXT_MISMATCH]: {
     message:
       'CSS property "{property}" has no effect on {nodeType}. {hint}',
+  },
+  [WarningCode.SVG_RASTERIZE_NO_SIZE]: {
+    message:
+      "SVG asset has no explicit width/height. Rasterizing at 512x512.",
+  },
+  [WarningCode.UNSUPPORTED_ASSET_TYPE]: {
+    message:
+      "Media files must be streamed via URL on Roku, not bundled.",
   },
 };

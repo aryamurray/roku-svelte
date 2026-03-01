@@ -46,6 +46,7 @@ export const ErrorCode = {
   FUNCTIONAL_IN_TEMPLATE: "FUNCTIONAL_IN_TEMPLATE",
   NO_WORKERS: "NO_WORKERS",
   FLEX_UNKNOWN_SIZE: "FLEX_UNKNOWN_SIZE",
+  UNSUPPORTED_ASSET_FORMAT: "UNSUPPORTED_ASSET_FORMAT",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -57,6 +58,8 @@ export const WarningCode = {
   UNSUPPORTED_TRANSITION: "UNSUPPORTED_TRANSITION",
   UNKNOWN_ELEMENT: "UNKNOWN_ELEMENT",
   CSS_CONTEXT_MISMATCH: "CSS_CONTEXT_MISMATCH",
+  SVG_RASTERIZE_NO_SIZE: "SVG_RASTERIZE_NO_SIZE",
+  UNSUPPORTED_ASSET_TYPE: "UNSUPPORTED_ASSET_TYPE",
 } as const;
 
 export type WarningCodeValue = (typeof WarningCode)[keyof typeof WarningCode];

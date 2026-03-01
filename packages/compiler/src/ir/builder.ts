@@ -17,6 +17,7 @@ import type {
   IRItemTextPart,
   IRArrayItemField,
   IRArrayItem,
+  AssetReference,
 } from "./types.js";
 import type { CompileError, CompileWarning } from "../errors/types.js";
 import { ErrorCode, WarningCode } from "../errors/types.js";
@@ -29,6 +30,7 @@ import {
   resolveFont,
   type LengthContext,
 } from "./css-values.js";
+import { resolveAssetSrc } from "./asset-resolver.js";
 
 export interface StyleContext {
   canvasWidth: number;
@@ -137,6 +139,7 @@ function generateId(prefix: string): string {
 export interface BuildOptions {
   isEntry?: boolean;
   resolution?: { width: number; height: number };
+  filePath?: string;
 }
 
 export interface BuildResult {
@@ -154,8 +157,10 @@ interface EachContext {
 interface BuildContext {
   source: string;
   filename: string;
+  filePath: string | null;
   warnings: CompileWarning[];
   errors: CompileError[];
+  assets: AssetReference[];
   stateVarNames: Set<string>;
   stateVars: IRStateVariable[];
   handlerNames: Set<string>;
@@ -212,8 +217,10 @@ export function buildIR(
   const ctx: BuildContext = {
     source,
     filename,
+    filePath: options?.filePath ?? null,
     warnings: [],
     errors: [],
+    assets: [],
     stateVarNames: new Set(),
     stateVars: [],
     handlerNames: new Set(),
@@ -332,6 +339,10 @@ export function buildIR(
 
   if (ctx.extractedCallbacks.length > 0) {
     component.extractedCallbacks = ctx.extractedCallbacks;
+  }
+
+  if (ctx.assets.length > 0) {
+    component.assets = ctx.assets;
   }
 
   return { component, warnings: ctx.warnings, errors: ctx.errors };
@@ -853,6 +864,23 @@ function buildElement(
     } else if (attr.type === "OnDirective") {
       // Handle on:select — store for post-processing with node ID
       // Inline handlers are caught by validation rule
+    }
+  }
+
+  // Post-process Poster nodes: resolve asset src paths
+  if (sgType === "Poster") {
+    const uriProp = properties.find((p) => p.name === "uri" && !p.dynamic);
+    if (uriProp) {
+      const widthProp = properties.find((p) => p.name === "width");
+      const heightProp = properties.find((p) => p.name === "height");
+      const w = widthProp ? parseFloat(widthProp.value) || null : null;
+      const h = heightProp ? parseFloat(heightProp.value) || null : null;
+      const loc = locationFromOffset(ctx.source, element.start, ctx.filename);
+      const assetResult = resolveAssetSrc(uriProp.value, ctx.filePath, loc, w, h);
+      uriProp.value = assetResult.uri;
+      if (assetResult.asset) ctx.assets.push(assetResult.asset);
+      if (assetResult.error) ctx.errors.push(assetResult.error);
+      if (assetResult.warning) ctx.warnings.push(assetResult.warning);
     }
   }
 

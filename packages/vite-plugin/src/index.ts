@@ -4,7 +4,7 @@ import { MODULE_ALIASES } from "./aliases.js";
 import { compileSvelteFile } from "./compiler-bridge.js";
 import { copyRuntimeFiles } from "./runtime-copy.js";
 import { deployToDevice } from "./deploy.js";
-import { emitManifest } from "@svelte-roku/compiler";
+import { emitManifest, processAssets, type AssetReference } from "@svelte-roku/compiler";
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "pathe";
 import type { SvelteRokuConfig, ResolvedConfig } from "@svelte-roku/config";
@@ -15,9 +15,14 @@ export type { SvelteRokuConfig, ResolvedConfig } from "@svelte-roku/config";
 export function svelteRoku(options?: SvelteRokuConfig): Plugin {
   let resolvedConfig: ResolvedConfig;
   let isDev = false;
+  let collectedAssets: AssetReference[] = [];
 
   return {
     name: "svelte-roku",
+
+    buildStart() {
+      collectedAssets = [];
+    },
 
     async config(_config, env) {
       resolvedConfig = await loadSvelteRokuConfig(options);
@@ -59,6 +64,8 @@ export function svelteRoku(options?: SvelteRokuConfig): Plugin {
         });
       }
 
+      collectedAssets.push(...result.assets);
+
       // Real output is filesystem side effects; return empty module for Vite
       return {
         code: "export default {};",
@@ -67,6 +74,11 @@ export function svelteRoku(options?: SvelteRokuConfig): Plugin {
     },
 
     async closeBundle() {
+      // Process collected assets (copy images, rasterize SVGs)
+      if (collectedAssets.length > 0) {
+        await processAssets(collectedAssets, resolvedConfig.outDir);
+      }
+
       // Write manifest
       const manifest = emitManifest({
         title: resolvedConfig.title,

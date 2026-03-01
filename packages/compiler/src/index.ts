@@ -10,14 +10,17 @@ import type {
   CompileWarning,
   SourceLocation,
 } from "./errors/types.js";
+import type { AssetReference } from "./ir/types.js";
 
-export type { CompileError, CompileWarning, SourceLocation };
+export type { CompileError, CompileWarning, SourceLocation, AssetReference };
 export { emitManifest } from "./emitters/manifest.js";
 export type { ManifestOptions } from "./emitters/manifest.js";
+export { processAssets, type ProcessAssetsResult } from "./assets/processor.js";
 
 export interface CompileOptions {
   isEntry?: boolean;
   resolution?: { width: number; height: number };
+  filePath?: string;
 }
 
 export interface AdditionalComponent {
@@ -31,6 +34,7 @@ export interface CompileResult {
   brightscript: string;
   warnings: CompileWarning[];
   errors: CompileError[];
+  assets: AssetReference[];
   additionalComponents?: AdditionalComponent[];
   requiresRuntime?: boolean;
   requiresStdlib?: boolean;
@@ -67,7 +71,7 @@ export async function compile(
           source.split("\n")[(parseErr.start?.line ?? 1) - 1] ?? "",
       },
     });
-    return { xml: "", brightscript: "", warnings, errors };
+    return { xml: "", brightscript: "", warnings, errors, assets: [] };
   }
 
   const validation = validate(ast, source, filename);
@@ -75,18 +79,21 @@ export async function compile(
   warnings.push(...validation.warnings);
 
   if (errors.some((e) => e.fatal)) {
-    return { xml: "", brightscript: "", warnings, errors };
+    return { xml: "", brightscript: "", warnings, errors, assets: [] };
   }
 
   const irResult = buildIR(ast, source, filename, {
     isEntry: options?.isEntry,
     resolution: options?.resolution,
+    filePath: options?.filePath,
   });
   warnings.push(...irResult.warnings);
   errors.push(...irResult.errors);
 
+  const assets = irResult.component.assets ?? [];
+
   if (errors.some((e) => e.fatal)) {
-    return { xml: "", brightscript: "", warnings, errors };
+    return { xml: "", brightscript: "", warnings, errors, assets };
   }
 
   // Layout resolution pass (async for Yoga WASM)
@@ -99,7 +106,7 @@ export async function compile(
   errors.push(...layoutResult.errors);
 
   if (errors.some((e) => e.fatal)) {
-    return { xml: "", brightscript: "", warnings, errors };
+    return { xml: "", brightscript: "", warnings, errors, assets };
   }
 
   const xml = emitXML(irResult.component);
@@ -124,5 +131,5 @@ export async function compile(
     ? [...irResult.component.requiredPolyfills]
     : undefined;
 
-  return { xml, brightscript, warnings, errors, additionalComponents, requiresRuntime, requiresStdlib, requiredPolyfills };
+  return { xml, brightscript, warnings, errors, assets, additionalComponents, requiresRuntime, requiresStdlib, requiredPolyfills };
 }
